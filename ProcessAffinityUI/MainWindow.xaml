@@ -1,0 +1,57 @@
+﻿<Window x:Class="ProcessAffinityUI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ProcessAffinity" mc:Ignorable="d" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" Height="411" Width="600" Icon="ProcessAffinity.ico" >
+
+    <Grid>
+        <DockPanel LastChildFill="True">
+            <Border Height="45" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Top" FlowDirection="LeftToRight">
+                <Grid ShowGridLines="True">
+                    <Grid.RowDefinitions>
+                        <RowDefinition/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ComputerNameTextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="1" Text="localhost" />
+                    <Button Content="Load" Height="20" HorizontalAlignment="Left" Margin="495,16,0,0" Name="loadProcessesButton" VerticalAlignment="Top" Width="75" Click="loadProcessesButton_Click" TabIndex="5" />
+                    <TextBox Height="20" HorizontalAlignment="Left" Margin="122,17,0,0" Name="DomainTextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="2" Text="MAF_NT" />
+                    <TextBox Height="20" HorizontalAlignment="Left" Margin="238,16,0,0" Name="UsertextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="3" />
+                    <Label Content="Computer" Height="21" HorizontalAlignment="Left" Margin="6,-1,0,0" Name="ComputerNameLabel" VerticalAlignment="Top" FontSize="8" FontWeight="ExtraBold" />
+                    <Label Content="Domain" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="122,0,0,0" Name="DomainLabel" VerticalAlignment="Top" />
+                    <Label Content="User" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="238,-1,0,0" Name="UserLabel" VerticalAlignment="Top" />
+                    <Label Content="Password" FontSize="8" FontWeight="ExtraBold" HorizontalAlignment="Left" Margin="353,-1,0,24" Name="Passwordlabel" />
+                    <PasswordBox Height="21" HorizontalAlignment="Left" Margin="353,15,0,0" Name="passwordBox" VerticalAlignment="Top" Width="120" FontSize="10" FontWeight="Black" TabIndex="4" />
+                </Grid>
+            </Border>
+            <Border Height="44" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Bottom">
+                <TextBlock Foreground="Black" Height="45"><InlineUIContainer>
+                		<ComboBox x:Name="CPUComboBox" Height="30" Width="50" RenderTransformOrigin="0.625,2.314" FontSize="8"  />
+                	</InlineUIContainer>
+                    <InlineUIContainer>
+                        <Label Content="0" x:Name="ProcessControlsCountLabel" HorizontalContentAlignment="Right" />
+                    </InlineUIContainer>
+                    <InlineUIContainer>
+                        <Label Content="/" x:Name="Slash0Label" HorizontalContentAlignment="Center" />
+                    </InlineUIContainer>
+                    <InlineUIContainer>
+                        <Label Content="0" x:Name="ProcessesCountLabel" HorizontalContentAlignment="Left" />
+                    </InlineUIContainer>
+                    <InlineUIContainer>
+                        <Label Content="---" x:Name="EventsSubscritionsLabel" />
+                    </InlineUIContainer>                    
+                </TextBlock>
+            </Border>
+            <Border Width="50" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Left">
+                <TextBlock Foreground="Black" />
+            </Border>
+            <Border Background="White" BorderBrush="Black" BorderThickness="1"  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" >
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                    <WrapPanel Background="White"  Name="processWrapPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"  />
+                </ScrollViewer>
+            </Border>
+
+        </DockPanel>
+
+    </Grid>
+</Window>

@@ -1,0 +1,34 @@
+﻿<UserControl x:Class="ProcessAffinityUI.ProcessUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" BorderBrush="{x:Null}" BorderThickness="3" Height="83" Width="102" FontWeight="Normal" Opacity="1" MouseRightButtonDown="UserControl_MouseRightButtonDown" MouseDown="UserControl_MouseDown" Background= "LightGray">
+
+    <Grid >
+
+        <Label Content="0000" Height="22" HorizontalAlignment="Left" Margin="0,55,0,0" Name="ProcessIDlabel" VerticalAlignment="Top" VerticalContentAlignment="Bottom" HorizontalContentAlignment="Center" Width="96" FontSize="10" FontWeight="SemiBold" Opacity="1" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel0" TabIndex="0" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="83,0,3,21" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel1" TabIndex="1" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="81,0,10,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel2" TabIndex="2" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="76,0,15,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel3" TabIndex="3" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="71,0,20,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel4" TabIndex="4" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="66,0,25,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel5" TabIndex="5" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="61,0,30,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel6" TabIndex="6" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="56,0,35,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel7" TabIndex="7" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="51,0,40,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel8" TabIndex="8" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="46,0,45,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel9" TabIndex="9" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="41,0,50,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel10" TabIndex="10" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="36,0,55,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel11" TabIndex="11" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="31,0,60,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel12" TabIndex="12" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="26,0,65,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel13" TabIndex="13" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="21,0,70,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel14" TabIndex="14" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="16,0,75,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel15" TabIndex="15" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="11,0,80,0" />
+        <Label Content="On" Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel16" TabIndex="16" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="6,0,85,0" />        
+        <Image Height="24" Name="ProcessImage" Stretch="Fill" VerticalAlignment="Bottom" Margin="0,0,74,12" MouseRightButtonDown="ProcessImage_MouseRightButtonDown" />
+        <CheckBox Content="" Name="SelectedUserControlCheckBox" Visibility="Hidden" HorizontalAlignment="Left" Margin="83,-1,-1,0" VerticalAlignment="Top" Width="14" Height="16"/>
+
+
+    </Grid>
+
+</UserControl>
