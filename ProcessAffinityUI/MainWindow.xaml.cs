@@ -76,6 +76,11 @@ namespace ProcessAffinityUI
 
                     if (processes[i] != null)
                     {
+                        if (processes[i].IsService && this.ShowServicesCheckBox.IsChecked != true)
+                        {
+                            continue;
+                        }
+
                         processUserControl = new ProcessUserControl(processes[i]);
                         bool processUserControlExists = ProcessUserControlExists(processes[i]);
 
@@ -167,7 +172,7 @@ namespace ProcessAffinityUI
             int numberOfProcessors = 0;
 
             if (
-                    ComputerNameTextBox.Text.Trim().ToLower() == "localhost")
+                    ComputerNameTextBox.Text.Trim() == ".")
             {
                 numberOfProcessors = processes.GetProcessorsProperties().NumberOfLogicalProcessors;
             }
@@ -364,8 +369,13 @@ namespace ProcessAffinityUI
                 // Processes.InitalizeWatcher exception
                 this.processWrapPanel.Children.Add(new ProcessUserControl(process));
             }
-            else 
+            else
             {
+                if (process.IsService && this.ShowServicesCheckBox.IsChecked != true)
+                {
+                    return;
+                }
+
                 if (process.ToKill)
                 {
                     process.Kill();
@@ -486,7 +496,7 @@ namespace ProcessAffinityUI
             {
 
 
-                if (UsertextBox.Text.Trim() == string.Empty || ComputerNameTextBox.Text.Trim().ToLower() == "localhost")
+                if (UsertextBox.Text.Trim() == string.Empty || ComputerNameTextBox.Text.Trim() == ".")
                 {
                     processes = new Processes();
                     services = new Processes(TargetInstanceEnum.Win32_Service);
@@ -559,6 +569,14 @@ namespace ProcessAffinityUI
                 
             }
 
+        }
+
+        private void ShowServicesCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
+        {
+            if (this._processes != null)
+            {
+                this.InitializeProcessWrapPanel(this._processes);
+            }
         }
 
         private void ProcessAffinityNotifyIconMouseDoubleClick(object sender, System.Windows.Forms.MouseEventArgs e)

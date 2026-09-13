@@ -13,15 +13,16 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition />
                     </Grid.ColumnDefinitions>
-                    <TextBox Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ComputerNameTextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="1" Text="localhost" />
+                    <TextBox Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ComputerNameTextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="1" Text="." Visibility="Collapsed" />
                     <Button Content="Load" Height="20" HorizontalAlignment="Left" Margin="495,16,0,0" Name="loadProcessesButton" VerticalAlignment="Top" Width="75" Click="loadProcessesButton_Click" TabIndex="5" />
-                    <TextBox Height="20" HorizontalAlignment="Left" Margin="122,17,0,0" Name="DomainTextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="2" Text="MAF_NT" />
-                    <TextBox Height="20" HorizontalAlignment="Left" Margin="238,16,0,0" Name="UsertextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="3" />
-                    <Label Content="Computer" Height="21" HorizontalAlignment="Left" Margin="6,-1,0,0" Name="ComputerNameLabel" VerticalAlignment="Top" FontSize="8" FontWeight="ExtraBold" />
-                    <Label Content="Domain" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="122,0,0,0" Name="DomainLabel" VerticalAlignment="Top" />
-                    <Label Content="User" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="238,-1,0,0" Name="UserLabel" VerticalAlignment="Top" />
-                    <Label Content="Password" FontSize="8" FontWeight="ExtraBold" HorizontalAlignment="Left" Margin="353,-1,0,24" Name="Passwordlabel" />
-                    <PasswordBox Height="21" HorizontalAlignment="Left" Margin="353,15,0,0" Name="passwordBox" VerticalAlignment="Top" Width="120" FontSize="10" FontWeight="Black" TabIndex="4" />
+                    <TextBox Height="20" HorizontalAlignment="Left" Margin="122,17,0,0" Name="DomainTextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="2" Text="" Visibility="Collapsed" />
+                    <TextBox Height="20" HorizontalAlignment="Left" Margin="238,16,0,0" Name="UsertextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="3" Text="" Visibility="Collapsed" />
+                    <Label Content="Computer" Height="21" HorizontalAlignment="Left" Margin="6,-1,0,0" Name="ComputerNameLabel" VerticalAlignment="Top" FontSize="8" FontWeight="ExtraBold" Visibility="Collapsed" />
+                    <Label Content="Domain" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="122,0,0,0" Name="DomainLabel" VerticalAlignment="Top" Visibility="Collapsed" />
+                    <Label Content="User" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="238,-1,0,0" Name="UserLabel" VerticalAlignment="Top" Visibility="Collapsed" />
+                    <Label Content="Password" FontSize="8" FontWeight="ExtraBold" HorizontalAlignment="Left" Margin="353,-1,0,24" Name="Passwordlabel" Visibility="Collapsed" />
+                    <PasswordBox Height="21" HorizontalAlignment="Left" Margin="353,15,0,0" Name="passwordBox" VerticalAlignment="Top" Width="120" FontSize="10" FontWeight="Black" TabIndex="4" Password="" Visibility="Collapsed" />
+                    <CheckBox Content="Afficher les services" Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ShowServicesCheckBox" VerticalAlignment="Top" Width="160" FontSize="10" IsChecked="False" Checked="ShowServicesCheckBox_CheckedChanged" Unchecked="ShowServicesCheckBox_CheckedChanged" />
                 </Grid>
             </Border>
             <Border Height="44" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Bottom">
