@@ -81,6 +81,9 @@ processeur logique dans l'IHM.
 - Échanges et messages d'interface en français.
 - Un commit par étape du plan, avec l'application en état de marche.
 - Ne pas élargir le périmètre d'une étape sans validation explicite.
+- La description de chaque PR énonce la demande d'origine avant la liste des
+  modifications. Toute modification non demandée explicitement y est signalée
+  comme telle.
 
 ## Versionnement
 
