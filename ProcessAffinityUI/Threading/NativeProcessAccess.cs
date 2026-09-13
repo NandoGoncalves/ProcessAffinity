@@ -4,15 +4,17 @@ using System.Runtime.InteropServices;
 namespace ProcessAffinityUI.Threading
 {
     /// <summary>
-    /// Lecture du masque d'affinité sans élévation.
-    /// Process.ProcessorAffinity ouvre un handle avec PROCESS_QUERY_INFORMATION,
-    /// refusé sur les processus des autres utilisateurs. GetProcessAffinityMask
-    /// se contente de PROCESS_QUERY_LIMITED_INFORMATION, le droit prévu pour les
-    /// interroger. L'écriture, elle, reste soumise à l'élévation.
+    /// Accès natif aux processus, sans élévation.
+    /// La lecture comme l'écriture de l'affinité et de la priorité passent par
+    /// le descripteur de sécurité du processus cible : PROCESS_QUERY_LIMITED_INFORMATION
+    /// n'y change rien pour un processus d'un autre compte.
+    /// Process.ProcessorAffinity, lui, exige PROCESS_QUERY_INFORMATION, plus
+    /// restrictif encore.
     /// </summary>
-    internal static class NativeProcessAffinity
+    internal static class NativeProcessAccess
     {
         private const int ProcessQueryLimitedInformation = 0x1000;
+        private const int ProcessSetInformation = 0x0200;
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr OpenProcess(int desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, int processId);
@@ -50,6 +52,26 @@ namespace ProcessAffinityUI.Threading
             {
                 CloseHandle(processHandle);
             }
+        }
+
+        /// <summary>
+        /// Le processus accorde-t-il PROCESS_SET_INFORMATION, droit requis pour
+        /// écrire affinité et priorité. Sondé séparément de la lecture : quelques
+        /// processus sont lisibles sans être modifiables, notamment ceux d'une
+        /// session élevée du même utilisateur.
+        /// </summary>
+        public static bool CanModifyProcess(int processID)
+        {
+            IntPtr processHandle = OpenProcess(ProcessSetInformation, false, processID);
+
+            if (processHandle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            CloseHandle(processHandle);
+
+            return true;
         }
     }
 }

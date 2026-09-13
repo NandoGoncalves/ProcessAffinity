@@ -23,6 +23,7 @@ namespace ProcessAffinityUI.Threading
         private long _lastCreateTime = 0;
 
         private bool? _isProcessorAffinityReadable = null;
+        private bool? _isModifiable = null;
 
         private NotifyCPUUsageChangeDelegate notifyCPUUsageChangeDelegate = null;
         private TargetInstanceEnum _targetInstance = TargetInstanceEnum.Win32_Process;
@@ -132,7 +133,7 @@ namespace ProcessAffinityUI.Threading
         {
             nuint processorAffinity;
 
-            if (NativeProcessAffinity.TryGetProcessorAffinity(this.ProcessID, out processorAffinity))
+            if (NativeProcessAccess.TryGetProcessorAffinity(this.ProcessID, out processorAffinity))
             {
                 this._isProcessorAffinityReadable = true;
 
@@ -151,6 +152,25 @@ namespace ProcessAffinityUI.Threading
         public bool? IsProcessorAffinityReadable
         {
             get { return this._isProcessorAffinityReadable; }
+        }
+
+        /// <summary>
+        /// L'affinité et la priorité de ce processus peuvent-elles être écrites.
+        /// Sans ce droit, la fenêtre d'affinité s'ouvrait, acceptait des cases
+        /// cochées et validait sans que rien ne se produise. Stable pour la durée
+        /// de vie du processus, donc évalué une seule fois.
+        /// </summary>
+        public bool IsModifiable
+        {
+            get
+            {
+                if (this._isModifiable == null)
+                {
+                    this._isModifiable = NativeProcessAccess.CanModifyProcess(this.ProcessID);
+                }
+
+                return this._isModifiable.Value;
+            }
         }
 
         public void SetProcessorAffinity(nuint processorAffinity)

@@ -26,6 +26,11 @@ namespace ProcessAffinityUI
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
 
+        /// <summary>Ardoise sourde : lisible sur le fond clair, sans concurrencer
+        /// les couleurs de priorité des barres.</summary>
+        private static readonly Brush NotModifiableBorderBrush =
+            new SolidColorBrush(Color.FromRgb(0x6E, 0x7B, 0x8B));
+
         /// <summary>
         /// Durée d'affichage de l'infobulle. La valeur par défaut de WPF, 5 s, la
         /// refermerait avant qu'on ait pu suivre l'évolution de la charge ; elle se
@@ -81,8 +86,19 @@ namespace ProcessAffinityUI
             }
 
             this.SetIcon(process);
+            this.SetModifiableMarker(process);
 
             return this;
+        }
+
+        /// <summary>
+        /// Liseré discret sur les entrées dont l'affinité et la priorité ne sont
+        /// pas modifiables. Un grisé rendrait le nom illisible ; la bordure du
+        /// contrôle est déjà réservée en disposition, seule sa peinture change.
+        /// </summary>
+        private void SetModifiableMarker(Process process)
+        {
+            this.BorderBrush = process.IsModifiable ? null : NotModifiableBorderBrush;
         }
 
         /// <summary>
@@ -443,6 +459,11 @@ namespace ProcessAffinityUI
                 if (this._process.GetProcessorAffinity() == null)
                 {
                     text = text + "\r\nAffinité : illisible, faute de droits sur ce processus.";
+                }
+
+                if (!this._process.IsModifiable)
+                {
+                    text = text + "\r\nAffinité et priorité non modifiables sans élévation.";
                 }
 
                 // Affinité et priorité s'appliquent au processus hôte : quand il

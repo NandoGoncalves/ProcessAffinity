@@ -98,6 +98,7 @@ namespace ProcessAffinityUI
                 processes = null;
 
                 UpdateSelectionState();
+                ApplyModifiableState();
 
             }
             catch(Exception e)
@@ -112,6 +113,28 @@ namespace ProcessAffinityUI
             UpdateSelectionState();
         }
 
+        /// <summary>
+        /// Entrée unique non modifiable : cocher des cases et valider n'aurait
+        /// aucun effet. On désactive la saisie et on le dit. La fenêtre se ferme
+        /// par sa case système.
+        /// </summary>
+        private void ApplyModifiableState()
+        {
+            if (this._process == null || this._process.IsModifiable)
+            {
+                return;
+            }
+
+            foreach (CheckBox cpuCheckBox in this.GetCPUCheckBoxes())
+            {
+                cpuCheckBox.IsEnabled = false;
+            }
+
+            this.SelectAllButton.IsEnabled = false;
+            this.CloseButton.IsEnabled = false;
+            this.NotModifiableTextBlock.Text = "Affinité non modifiable sans élévation.";
+        }
+
         private void UpdateSelectionState()
         {
             List<CheckBox> cpuCheckBoxes = this.GetCPUCheckBoxes();
@@ -119,7 +142,7 @@ namespace ProcessAffinityUI
             bool anyChecked = cpuCheckBoxes.Any(cb => cb.IsChecked == true);
             bool allChecked = cpuCheckBoxes.Count > 0 && cpuCheckBoxes.All(cb => cb.IsChecked == true);
 
-            this.CloseButton.IsEnabled = anyChecked;
+            this.CloseButton.IsEnabled = anyChecked && (this._process == null || this._process.IsModifiable);
             this.SelectAllButton.Content = allChecked ? "Tout désélectionner" : "Tout sélectionner";
         }
 
@@ -251,13 +274,65 @@ namespace ProcessAffinityUI
             }
         }
 
+        /// <summary>
+        /// Applique ce qui peut l'être et rapporte le reste : on n'annule pas ce
+        /// qui a réussi.
+        /// </summary>
         public void SetProcessorsAffinities()
         {
+            int appliedCount = 0;
+            List<string> notModifiableNames = new List<string>();
+
             for (int i = 0; i < _processes.Count; i++)
             {
-                    _process = _processes[i].Process;
-                    SetProcessorAffinity();
+                Process process = _processes[i].Process;
+
+                if (!process.IsModifiable)
+                {
+                    notModifiableNames.Add(process.ProcessName);
+                    continue;
+                }
+
+                _process = process;
+                SetProcessorAffinity();
+                appliedCount++;
             }
+
+            ReportPartialApplication("Affinité", appliedCount, notModifiableNames);
+        }
+
+        /// <summary>
+        /// Rapport final d'une application partielle. Silencieux quand tout a pu
+        /// être appliqué.
+        /// </summary>
+        internal static void ReportPartialApplication(string subject, int appliedCount, List<string> notModifiableNames)
+        {
+            if (notModifiableNames.Count == 0)
+            {
+                return;
+            }
+
+            const int maximumListed = 15;
+
+            StringBuilder builder = new StringBuilder();
+
+            builder.Append(subject).Append(" appliquée à ").Append(appliedCount)
+                   .Append(appliedCount > 1 ? " entrées." : " entrée.").Append("\r\n\r\n");
+
+            builder.Append(notModifiableNames.Count)
+                   .Append(notModifiableNames.Count > 1
+                       ? " entrées non modifiables sans élévation :"
+                       : " entrée non modifiable sans élévation :")
+                   .Append("\r\n");
+
+            builder.Append(string.Join(", ", notModifiableNames.Take(maximumListed)));
+
+            if (notModifiableNames.Count > maximumListed)
+            {
+                builder.Append(", et ").Append(notModifiableNames.Count - maximumListed).Append(" autres");
+            }
+
+            MessageBox.Show(builder.ToString(), "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
     }

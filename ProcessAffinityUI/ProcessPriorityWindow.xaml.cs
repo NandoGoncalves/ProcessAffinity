@@ -90,20 +90,35 @@ namespace ProcessAffinityUI
 
             public void SetProcessesPriorities()
         {
+            int appliedCount = 0;
+            List<string> notModifiableNames = new List<string>();
+
             for (int i = 0; i < _processes.Count; i++)
             {
-                _process = _processes[i].Process;
+                Process process = _processes[i].Process;
+
+                if (!process.IsModifiable)
+                {
+                    notModifiableNames.Add(process.ProcessName);
+                    continue;
+                }
+
+                _process = process;
+
                 try
                 {
                     SetProcessPriority();
+                    appliedCount++;
                 }
                 catch
                 {
-                    // 
+                    //
                 }
 
                 _processes[i].SetProcessAffinityColors();
             }
+
+            ProcessAffinityWindow.ReportPartialApplication("Priorité", appliedCount, notModifiableNames);
         }
 
 
