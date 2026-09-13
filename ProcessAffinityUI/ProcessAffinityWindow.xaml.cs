@@ -58,7 +58,7 @@ namespace ProcessAffinityUI
             try
             {
                 ProcessAffinityUI.Threading.Processes processes = new Threading.Processes();
-                string processorsAffinities = ToBinary(this._process == null?this._processes[0].Process.GetProcessorAffinity():this._process.GetProcessorAffinity(), processes.GetProcessorsProperties().NumberOfLogicalProcessors);
+                string processorsAffinities = ToBinary((ulong)(this._process == null?this._processes[0].Process.GetProcessorAffinity():this._process.GetProcessorAffinity()), processes.GetProcessorsProperties().NumberOfLogicalProcessors);
 
                 for (int i = 0; i < processes.GetProcessorsProperties().NumberOfLogicalProcessors; i++)
                 {
@@ -134,10 +134,10 @@ namespace ProcessAffinityUI
             return (bool)this.GetCPUCheckBoxes()[CPUCheckBox].IsChecked;
         }
         
-        public static string ToBinary(Int64 Decimal, int bitsNumber)
+        public static string ToBinary(ulong Decimal, int bitsNumber)
         {
             // Declare a few variables we're going to need
-            Int64 BinaryHolder;
+            ulong BinaryHolder;
             char[] BinaryArray;
             string BinaryResult = "";
 
@@ -154,7 +154,7 @@ namespace ProcessAffinityUI
             BinaryResult = new string(BinaryArray);
 
             BinaryResult = new string('0', bitsNumber) + BinaryResult;
-            BinaryResult = BinaryResult.Substring(BinaryResult.Length - 4); // Why -4 ? 20180822
+            BinaryResult = BinaryResult.Substring(BinaryResult.Length - bitsNumber);
 
             return  BinaryResult ;
         }
@@ -176,13 +176,13 @@ namespace ProcessAffinityUI
 
         private void SetProcessorAffinity()
         {
-            int processorAffinity = 0;
+            nuint processorAffinity = 0;
 
             foreach (CheckBox cpuCheckBox in this.ProcessAffinityWrapPanel.Children)
             {
                 if ((bool)cpuCheckBox.IsChecked)
                 {
-                    processorAffinity += (int)Math.Pow(2, (int)cpuCheckBox.Tag);
+                    processorAffinity |= (nuint)1 << (int)cpuCheckBox.Tag;
                 }
             }
 

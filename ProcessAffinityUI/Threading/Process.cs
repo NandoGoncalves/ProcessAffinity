@@ -111,13 +111,14 @@ namespace ProcessAffinityUI.Threading
             }
         }
 
-        public int GetProcessorAffinity()
+        public nuint GetProcessorAffinity()
         {
-            int processorAffinity = 0;
+            nuint processorAffinity = 0;
 
             try
             {
-                processorAffinity = (int)System.Diagnostics.Process.GetProcessById(this.ProcessID, this.ComputerName).ProcessorAffinity;
+                nint affinity = (nint)System.Diagnostics.Process.GetProcessById(this.ProcessID, this.ComputerName).ProcessorAffinity;
+                processorAffinity = unchecked((nuint)affinity);
             }
             catch//(Exception e)
             {
@@ -127,11 +128,12 @@ namespace ProcessAffinityUI.Threading
             return processorAffinity;
         }
 
-        public void SetProcessorAffinity(int processorAffinity)
+        public void SetProcessorAffinity(nuint processorAffinity)
         {
             try
             {
-                System.Diagnostics.Process.GetProcessById(this.ProcessID, this.ComputerName).ProcessorAffinity = (IntPtr)processorAffinity;
+                nint affinity = unchecked((nint)processorAffinity);
+                System.Diagnostics.Process.GetProcessById(this.ProcessID, this.ComputerName).ProcessorAffinity = (IntPtr)affinity;
             }
             catch (Exception e)
             {
