@@ -8,13 +8,19 @@ using ProcessAffinityUI.Configuration;
 namespace ProcessAffinityUI.Threading
 {
 
-    public delegate void NotifyCPUUsageChangeDelegate(int cpuUsage);
+    public delegate void NotifyCPUUsageChangeDelegate(double? cpuUsage);
 
     public class Process
     {
         private WIN32_Process _win32Process = null;
-        private int _cpuUsage = 0;
+        private double? _cpuUsage = null;
         private string _executablePath = string.Empty;
+
+        // Échantillon précédent, pour le calcul du % CPU par delta.
+        private bool _hasCPUSample = false;
+        private long _lastCPUSampleTimestamp = 0;
+        private long _lastTotalProcessorTime = 0;
+        private long _lastCreateTime = 0;
 
         private NotifyCPUUsageChangeDelegate notifyCPUUsageChangeDelegate = null;
         private TargetInstanceEnum _targetInstance = TargetInstanceEnum.Win32_Process;
@@ -95,7 +101,10 @@ namespace ProcessAffinityUI.Threading
         public string ComputerName { get; set; }
 
         public string Description { get; set; }
-        public int CPUUsage { get { return this._cpuUsage; } }
+
+        // null tant qu'aucun delta n'a pu être calculé (premier échantillon,
+        // ou processus dont le temps CPU est inaccessible).
+        public double? CPUUsage { get { return this._cpuUsage; } }
         public string ExecutablePath { get { return this._executablePath; } }
         public ManagementScope Scope { get; set; }
         public int Priority
@@ -141,7 +150,7 @@ namespace ProcessAffinityUI.Threading
             }
         }
 
-        public void SetCPUUsage(int cpuUsage)
+        public void SetCPUUsage(double? cpuUsage)
         {
             // http://social.msdn.microsoft.com/Forums/en-US/csharplanguage/thread/469ec6b7-4727-4773-9dc7-6e3de40e87b8/
             this._cpuUsage = cpuUsage;
@@ -150,6 +159,45 @@ namespace ProcessAffinityUI.Threading
             {
                 notifyCPUUsageChangeDelegate(this._cpuUsage);
             }
+        }
+
+        /// <summary>
+        /// Calcule le % CPU par delta du temps processeur sur le temps réellement
+        /// écoulé, rapporté au nombre de processeurs logiques. Le premier passage ne
+        /// produit aucune valeur : il ne fait qu'établir la référence.
+        /// Les temps sont exprimés en unités de 100 ns.
+        /// </summary>
+        internal void UpdateCPUUsage(long createTime, long totalProcessorTime, long timestamp)
+        {
+            // Un PID réutilisé porte une date de création différente : on repart
+            // d'une nouvelle référence au lieu de produire une valeur aberrante.
+            if (this._hasCPUSample && createTime == this._lastCreateTime)
+            {
+                long elapsedTicks = timestamp - this._lastCPUSampleTimestamp;
+
+                if (elapsedTicks > 0)
+                {
+                    double elapsedSeconds = (double)elapsedTicks / System.Diagnostics.Stopwatch.Frequency;
+                    double processorSeconds = (totalProcessorTime - this._lastTotalProcessorTime) / 10000000d;
+                    double cpuUsage = processorSeconds / elapsedSeconds / Environment.ProcessorCount * 100d;
+
+                    if (cpuUsage < 0d)
+                    {
+                        cpuUsage = 0d;
+                    }
+                    else if (cpuUsage > 100d)
+                    {
+                        cpuUsage = 100d;
+                    }
+
+                    this.SetCPUUsage(cpuUsage);
+                }
+            }
+
+            this._lastTotalProcessorTime = totalProcessorTime;
+            this._lastCPUSampleTimestamp = timestamp;
+            this._lastCreateTime = createTime;
+            this._hasCPUSample = true;
         }
 
         public void SetNotifyCPUUsageChangeDelegate(NotifyCPUUsageChangeDelegate notifyCPUUsageChange)

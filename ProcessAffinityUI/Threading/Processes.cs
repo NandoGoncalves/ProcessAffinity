@@ -5,6 +5,7 @@ using System.Text;
 
 using System.Management;
 using System.Globalization;
+using System.Threading;
 using System.Threading.Tasks;
 
 
@@ -31,6 +32,17 @@ namespace ProcessAffinityUI.Threading
 
         private ManagementEventWatcher _watcher = null;
         private TargetInstanceEnum _targetInstance = TargetInstanceEnum.Win32_Process;
+
+        /// <summary>Intervalle unique d'échantillonnage du % CPU.</summary>
+        private const int CPUSamplingIntervalMilliseconds = 1000;
+
+        private readonly CancellationTokenSource _cpuSamplingCancellation = new CancellationTokenSource();
+
+        /// <summary>
+        /// Sérialise les accès à la collection : le watcher ajoute et retire des
+        /// éléments depuis son propre thread pendant que l'échantillonneur la lit.
+        /// </summary>
+        private readonly object _syncRoot = new object();
 
         public Processes()
             :this(TargetInstanceEnum.Win32_Process)
@@ -66,11 +78,25 @@ namespace ProcessAffinityUI.Threading
 
             this.Initialize();
 
-            new Task(() => { ListenCPUUsages(); }).Start();
+            Task.Factory.StartNew(() => ListenCPUUsages(this._cpuSamplingCancellation.Token), TaskCreationOptions.LongRunning);
+        }
+
+        /// <summary>
+        /// Arrête la boucle d'échantillonnage du % CPU. Idempotent.
+        /// </summary>
+        public void StopCPUSampling()
+        {
+            if (!this._cpuSamplingCancellation.IsCancellationRequested)
+            {
+                this._cpuSamplingCancellation.Cancel();
+            }
         }
 
         public void Dispose()
         {
+            this.StopCPUSampling();
+            this._cpuSamplingCancellation.Dispose();
+
             // http://stackoverflow.com/questions/26229344/how-to-prevent-wmi-quotas-from-overflowing
             if (this._watcher != null)
             {
@@ -127,11 +153,17 @@ namespace ProcessAffinityUI.Threading
                         }
                         catch
                         {
-                            this.Add(new Process(this._computerName, 0, "error"));
+                            lock (this._syncRoot)
+                            {
+                                this.Add(new Process(this._computerName, 0, "error"));
+                            }
                         }
                     }
 
-                    this.Sort((x, y) => string.Compare(x.ProcessName, y.ProcessName)) ;
+                    lock (this._syncRoot)
+                    {
+                        this.Sort((x, y) => string.Compare(x.ProcessName, y.ProcessName));
+                    }
 
                 Task.Factory.StartNew(() => this.InitializeWatcher(), TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness);
 
@@ -145,21 +177,39 @@ namespace ProcessAffinityUI.Threading
 
         public void AddProcess(Process process)
         {
-            if (!this.ProcessExists(process))
+            lock (this._syncRoot)
             {
-                this.Add(process);
+                if (!this.ProcessExists(process))
+                {
+                    this.Add(process);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ajout en bloc sous verrou : List&lt;T&gt;.AddRange muterait la collection
+        /// pendant que l'échantillonneur la lit.
+        /// </summary>
+        public void AddProcesses(IEnumerable<Process> processes)
+        {
+            lock (this._syncRoot)
+            {
+                this.AddRange(processes);
             }
         }
 
         public bool ProcessExists(Process process)
         {
-            bool processExists = false;
-            if (this.Exists(p => p.ProcessID == process.ProcessID))
+            lock (this._syncRoot)
             {
-                processExists = true;
-            }
+                bool processExists = false;
+                if (this.Exists(p => p.ProcessID == process.ProcessID))
+                {
+                    processExists = true;
+                }
 
-            return processExists;
+                return processExists;
+            }
         }
 
         private void InitializeWatcher()
@@ -199,15 +249,29 @@ namespace ProcessAffinityUI.Threading
                                 switch (eventType)
                                 {
                                     case "__InstanceCreationEvent":
-                                        if (!this.ProcessExists(process))
+                                        bool processAdded = false;
+
+                                        lock (this._syncRoot)
                                         {
-                                            this.Add(process);
+                                            if (!this.ProcessExists(process))
+                                            {
+                                                this.Add(process);
+                                                processAdded = true;
+                                            }
+                                        }
+
+                                        if (processAdded)
+                                        {
                                             if (ProcessCreated != null) ProcessCreated(this, new ProcessEventArgs(process, ProcessEventTypeEnum.Created));
                                         }
                                         break;
                                     case "__InstanceDeletionEvent":
-                                        IEnumerable<Process> processes = this.Where(item => item.ProcessID == win32Process.ProcessId);
-                                        if (processes != null && processes.Count() > 0) this.Remove(processes.ElementAt(0));
+                                        lock (this._syncRoot)
+                                        {
+                                            IEnumerable<Process> processes = this.Where(item => item.ProcessID == win32Process.ProcessId);
+                                            if (processes != null && processes.Count() > 0) this.Remove(processes.ElementAt(0));
+                                        }
+
                                         if (ProcessDeleted != null) ProcessDeleted(this, new ProcessEventArgs(process, ProcessEventTypeEnum.Deleted));
                                         break;
                                     case "__InstanceModificationEvent":
@@ -279,59 +343,69 @@ namespace ProcessAffinityUI.Threading
 //            }
 //        }
 
-        private void ListenCPUUsages()
+        private void ListenCPUUsages(CancellationToken cancellationToken)
         {
-            while (true)
+            while (!cancellationToken.IsCancellationRequested)
             {
-                SetCPUUsages();
-                System.Threading.Thread.Sleep(300);
+                try
+                {
+                    SetCPUUsages();
+                }
+                catch
+                {
+                    // Un tick en échec ne doit jamais interrompre les suivants :
+                    // sans cela, l'échantillonnage s'arrêterait définitivement et
+                    // silencieusement à la première exception.
+                }
+
+                try
+                {
+                    // Attente interruptible : l'annulation est prise en compte
+                    // immédiatement, sans attendre la fin de l'intervalle.
+                    if (cancellationToken.WaitHandle.WaitOne(CPUSamplingIntervalMilliseconds))
+                    {
+                        break;
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Source d'annulation libérée par Dispose().
+                    break;
+                }
             }
         }
 
         private void SetCPUUsages()
         {
+            long timestamp;
 
-            //ManagementObjectSearcher searcher =
-            //    new ManagementObjectSearcher("root\\CIMV2",
-            //    "SELECT * FROM Win32_PerfFormattedData_PerfProc_Process");
+            // Un seul appel système pour tous les processus, sans ouverture de
+            // handle : aucun contrôle d'accès par processus.
+            Dictionary<int, SystemProcessTimes.ProcessTimes> processTimesByProcessID =
+                SystemProcessTimes.GetProcessTimes(out timestamp);
 
-            ManagementObjectSearcher searcher =
-                new ManagementObjectSearcher(this._scope, new ObjectQuery("SELECT * FROM Win32_PerfFormattedData_PerfProc_Process"));
-
-            try
+            if (processTimesByProcessID == null)
             {
-                foreach (ManagementObject queryObj in searcher.Get())
-                {
-                    //Console.WriteLine("ProcessID: {0}", queryObj["IDProcess"]);
-                    //Console.WriteLine("Handles: {0}", queryObj["HandleCount"]);
-                    //Console.WriteLine("Threads: {0}", queryObj["ThreadCount"]);
-                    //Console.WriteLine("Memory: {0}", queryObj["WorkingSetPrivate"]);
-                    //Console.WriteLine("CPU%: {0}", queryObj["PercentProcessorTime"]);
-
-                    try
-                    {
-                        Process process = (from p in this
-                                           where p.ProcessID == int.Parse(queryObj["IDProcess"].ToString())
-                                           select p).First<Process>();
-                        if (process != null)
-                        {
-                            process.SetCPUUsage(int.Parse(queryObj["PercentProcessorTime"].ToString()));
-                        }
-
-
-                    }
-                    catch//(Exception ex)
-                    {
-                        // Dans le cas où le thread n'est pas présent dans l'appli
-                        // à gérer par la suite
-                        //throw new Exception("SetCPUUsage : Process dont exists anymore.");
-                        //throw new Exception("SetCPUUsages : \r\n" + ex.Message);
-                    }
-
-                }
+                return;
             }
-            catch
+
+            Process[] processes;
+
+            lock (this._syncRoot)
             {
+                processes = this.ToArray();
+            }
+
+            foreach (Process process in processes)
+            {
+                SystemProcessTimes.ProcessTimes processTimes;
+
+                // Association par PID : une recherche linéaire par processus
+                // donnerait un coût quadratique à chaque tick.
+                if (processTimesByProcessID.TryGetValue(process.ProcessID, out processTimes))
+                {
+                    process.UpdateCPUUsage(processTimes.CreateTime, processTimes.TotalProcessorTime, timestamp);
+                }
             }
         }
 

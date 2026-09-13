@@ -30,6 +30,7 @@ namespace ProcessAffinityUI
         private System.Windows.Forms.NotifyIcon _processAffinityNotifyIcon;
 
         private Processes _processes = null;
+        private Processes _services = null;
         ProcessEventHandler _processEventArrived = null;
         ProcessEventHandler _processCreated = null;
         ProcessEventHandler _processDeleted = null;
@@ -46,6 +47,7 @@ namespace ProcessAffinityUI
                 _processAffinityNotifyIcon.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(ProcessAffinityNotifyIconMouseDoubleClick);
 
                 this.StateChanged += new EventHandler(WindowStateChanged);
+                this.Closed += new EventHandler(WindowClosed);
 
                 processWrapPanel.MouseRightButtonDown += ProcessWrapPanel_MouseRightButtonDown;
 
@@ -211,15 +213,22 @@ namespace ProcessAffinityUI
             if (CPUComboBox.SelectedValue.ToString() == "ALL")
             {
                 processUserControl.Visibility = Visibility.Visible;
+                return;
             }
-            else if (ProcessAffinityWindow.ToBinary((ulong)processUserControl.Process.GetProcessorAffinity(), CPUComboBox.Items.Count - 1).Substring(int.Parse(CPUComboBox.SelectedIndex.ToString()), 1) == "1") // Si CPU sélectionnée => 0 (?!)
-            {
-                processUserControl.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                processUserControl.Visibility = Visibility.Collapsed;
-            }
+
+            // Les cœurs occupent les indices 0 à N-1, « ALL » étant ajouté en
+            // dernier : le numéro de cœur est l'indice lui-même.
+            int coreNumber = CPUComboBox.SelectedIndex;
+
+            // Test direct du bit. Passer par la chaîne de ToBinary inversait
+            // l'ordre des cœurs : elle est de poids fort en tête, mais elle était
+            // indexée par la gauche.
+            bool runsOnSelectedCore =
+                coreNumber >= 0
+                && coreNumber < IntPtr.Size * 8
+                && (processUserControl.Process.GetProcessorAffinity() & ((nuint)1 << coreNumber)) != 0;
+
+            processUserControl.Visibility = runsOnSelectedCore ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void ProcessWrapPanel_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -507,9 +516,30 @@ namespace ProcessAffinityUI
                     services = new Processes(ComputerNameTextBox.Text, DomainTextBox.Text, UsertextBox.Text, passwordBox.Password, TargetInstanceEnum.Win32_Service);
                 }
 
-                processes.AddRange(services);
+                processes.AddProcesses(services);
+
+                // Les objets Process des services sont désormais dans la liste
+                // fusionnée : son échantillonneur les couvre. Celui de l'instance
+                // services ferait une seconde énumération par tick pour rien.
+                services.StopCPUSampling();
+
+                Processes previousProcesses = this._processes;
+                Processes previousServices = this._services;
 
                 this._processes = processes;
+                this._services = services;
+
+                // Un rechargement laissait tourner l'échantillonneur de l'instance
+                // précédente.
+                if (previousProcesses != null)
+                {
+                    previousProcesses.StopCPUSampling();
+                }
+
+                if (previousServices != null)
+                {
+                    previousServices.StopCPUSampling();
+                }
 
 
                 if (processes.Count > 0)
@@ -563,12 +593,35 @@ namespace ProcessAffinityUI
             {
                 if (this.processWrapPanel.Children[i].GetType() == typeof(ProcessUserControl))
                 {
-                    this.Title = "ProcessAffinity on " + ((ProcessUserControl)this.processWrapPanel.Children[i]).Process.ComputerName;
+                    this.Title = "ProcessAffinity v" + GetApplicationVersion() + " on " + ((ProcessUserControl)this.processWrapPanel.Children[i]).Process.ComputerName;
                     break;
                 }
-                
+
             }
 
+        }
+
+        /// <summary>
+        /// Version lue depuis l'assembly, au format majeur.mineur.correctif.
+        /// </summary>
+        private static string GetApplicationVersion()
+        {
+            Version version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+
+            return version == null ? string.Empty : version.ToString(3);
+        }
+
+        private void WindowClosed(object sender, EventArgs e)
+        {
+            if (this._processes != null)
+            {
+                this._processes.StopCPUSampling();
+            }
+
+            if (this._services != null)
+            {
+                this._services.StopCPUSampling();
+            }
         }
 
         private void ShowServicesCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
