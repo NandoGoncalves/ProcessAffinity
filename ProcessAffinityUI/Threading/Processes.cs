@@ -5,6 +5,7 @@ using System.Text;
 
 using System.Management;
 using System.Globalization;
+using System.Threading;
 using System.Threading.Tasks;
 
 
@@ -31,6 +32,11 @@ namespace ProcessAffinityUI.Threading
 
         private ManagementEventWatcher _watcher = null;
         private TargetInstanceEnum _targetInstance = TargetInstanceEnum.Win32_Process;
+
+        /// <summary>Intervalle unique d'échantillonnage du % CPU.</summary>
+        private const int CPUSamplingIntervalMilliseconds = 1000;
+
+        private readonly CancellationTokenSource _cpuSamplingCancellation = new CancellationTokenSource();
 
         public Processes()
             :this(TargetInstanceEnum.Win32_Process)
@@ -66,11 +72,24 @@ namespace ProcessAffinityUI.Threading
 
             this.Initialize();
 
-            new Task(() => { ListenCPUUsages(); }).Start();
+            Task.Factory.StartNew(() => ListenCPUUsages(this._cpuSamplingCancellation.Token), TaskCreationOptions.LongRunning);
+        }
+
+        /// <summary>
+        /// Arrête la boucle d'échantillonnage du % CPU. Idempotent.
+        /// </summary>
+        public void StopCPUSampling()
+        {
+            if (!this._cpuSamplingCancellation.IsCancellationRequested)
+            {
+                this._cpuSamplingCancellation.Cancel();
+            }
         }
 
         public void Dispose()
         {
+            this.StopCPUSampling();
+
             // http://stackoverflow.com/questions/26229344/how-to-prevent-wmi-quotas-from-overflowing
             if (this._watcher != null)
             {
@@ -279,59 +298,78 @@ namespace ProcessAffinityUI.Threading
 //            }
 //        }
 
-        private void ListenCPUUsages()
+        private void ListenCPUUsages(CancellationToken cancellationToken)
         {
-            while (true)
+            while (!cancellationToken.IsCancellationRequested)
             {
                 SetCPUUsages();
-                System.Threading.Thread.Sleep(300);
+
+                // Attente interruptible : l'annulation est prise en compte
+                // immédiatement, sans attendre la fin de l'intervalle.
+                if (cancellationToken.WaitHandle.WaitOne(CPUSamplingIntervalMilliseconds))
+                {
+                    break;
+                }
             }
         }
 
         private void SetCPUUsages()
         {
-
-            //ManagementObjectSearcher searcher =
-            //    new ManagementObjectSearcher("root\\CIMV2",
-            //    "SELECT * FROM Win32_PerfFormattedData_PerfProc_Process");
-
-            ManagementObjectSearcher searcher =
-                new ManagementObjectSearcher(this._scope, new ObjectQuery("SELECT * FROM Win32_PerfFormattedData_PerfProc_Process"));
+            System.Diagnostics.Process[] systemProcesses;
 
             try
             {
-                foreach (ManagementObject queryObj in searcher.Get())
-                {
-                    //Console.WriteLine("ProcessID: {0}", queryObj["IDProcess"]);
-                    //Console.WriteLine("Handles: {0}", queryObj["HandleCount"]);
-                    //Console.WriteLine("Threads: {0}", queryObj["ThreadCount"]);
-                    //Console.WriteLine("Memory: {0}", queryObj["WorkingSetPrivate"]);
-                    //Console.WriteLine("CPU%: {0}", queryObj["PercentProcessorTime"]);
-
-                    try
-                    {
-                        Process process = (from p in this
-                                           where p.ProcessID == int.Parse(queryObj["IDProcess"].ToString())
-                                           select p).First<Process>();
-                        if (process != null)
-                        {
-                            process.SetCPUUsage(int.Parse(queryObj["PercentProcessorTime"].ToString()));
-                        }
-
-
-                    }
-                    catch//(Exception ex)
-                    {
-                        // Dans le cas où le thread n'est pas présent dans l'appli
-                        // à gérer par la suite
-                        //throw new Exception("SetCPUUsage : Process dont exists anymore.");
-                        //throw new Exception("SetCPUUsages : \r\n" + ex.Message);
-                    }
-
-                }
+                systemProcesses = System.Diagnostics.Process.GetProcesses();
             }
             catch
             {
+                return;
+            }
+
+            try
+            {
+                // Association par PID : une recherche linéaire par processus
+                // donnerait un coût quadratique à chaque tick.
+                Dictionary<int, System.Diagnostics.Process> systemProcessesByProcessID =
+                    new Dictionary<int, System.Diagnostics.Process>(systemProcesses.Length);
+
+                foreach (System.Diagnostics.Process systemProcess in systemProcesses)
+                {
+                    systemProcessesByProcessID[systemProcess.Id] = systemProcess;
+                }
+
+                long timestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                Process[] processes;
+
+                try
+                {
+                    // Copie défensive : le watcher ajoute et retire des éléments
+                    // depuis son propre thread.
+                    processes = this.ToArray();
+                }
+                catch
+                {
+                    return;
+                }
+
+                foreach (Process process in processes)
+                {
+                    System.Diagnostics.Process systemProcess;
+
+                    if (systemProcessesByProcessID.TryGetValue(process.ProcessID, out systemProcess))
+                    {
+                        process.UpdateCPUUsage(systemProcess, timestamp);
+                    }
+                }
+            }
+            finally
+            {
+                // Chaque instance détient un handle natif.
+                foreach (System.Diagnostics.Process systemProcess in systemProcesses)
+                {
+                    systemProcess.Dispose();
+                }
             }
         }
 

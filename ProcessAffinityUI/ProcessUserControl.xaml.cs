@@ -76,9 +76,9 @@ namespace ProcessAffinityUI
 
         public bool IsSelected{ get { return (bool)SelectedUserControlCheckBox.IsChecked;} set{ SetSelected(value);}}
 
-        private void SetCPUUsageLabel(int cpuUsage)
+        private void SetCPUUsageLabel(double? cpuUsage)
         {
-            Task.Run(() => { 
+            Task.Run(() => {
                 try
                 {
 
@@ -154,15 +154,21 @@ namespace ProcessAffinityUI
                     this.CPUUsagelabel1.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel1.Height = this.CPUUsagelabel0.Height; }), new object[] { });
                     this.CPUUsagelabel1.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel1.Background = this.CPUUsagelabel0.Background; }), new object[] { });
 
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Content = cpuUsage.ToString(); }), new object[] { });
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Height = (56 * cpuUsage) / 100; }), new object[] { });
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = new System.Windows.Media.SolidColorBrush(UIntToColor(uint.Parse(ConvertToValidRGBValue(cpuUsage).ToString()))); }), new object[] { });
+                    // Pas encore de delta disponible (premier échantillon) : on
+                    // n'affiche pas un 0 % trompeur, mais un tiret et aucune barre.
+                    int displayedCPUUsage = cpuUsage.HasValue ? (int)Math.Round(cpuUsage.Value, MidpointRounding.AwayFromZero) : 0;
+                    string displayedContent = cpuUsage.HasValue ? displayedCPUUsage.ToString() : "-";
+                    double displayedHeight = cpuUsage.HasValue ? (56d * cpuUsage.Value) / 100d : 0d;
+
+                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Content = displayedContent; }), new object[] { });
+                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Height = displayedHeight; }), new object[] { });
+                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = new System.Windows.Media.SolidColorBrush(UIntToColor(uint.Parse(ConvertToValidRGBValue(displayedCPUUsage).ToString()))); }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.ProcessNameLabelBackground = Brushes.White; }), new object[] { });
 
                 }
                 catch
                 {
-                    this.CPUUsagelabel0.Background = Brushes.Gray;
+                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = Brushes.Gray; }), new object[] { });
                 }
             });
         }

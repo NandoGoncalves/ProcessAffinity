@@ -80,6 +80,10 @@ namespace ProcessAffinityUI
 
 
 
+                // Instance créée uniquement pour lire le nombre de processeurs
+                // logiques : sans cet arrêt, chaque ouverture de la fenêtre
+                // laissait un échantillonneur CPU tourner indéfiniment.
+                processes.StopCPUSampling();
                 processes = null;
 
                 UpdateSelectionState();

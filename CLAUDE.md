@@ -81,3 +81,17 @@ processeur logique dans l'IHM.
 - Échanges et messages d'interface en français.
 - Un commit par étape du plan, avec l'application en état de marche.
 - Ne pas élargir le périmètre d'une étape sans validation explicite.
+
+## Versionnement
+
+À chaque évolution, incrémenter `AssemblyVersion` et `FileVersion` dans
+`ProcessAffinityUI.csproj` **avant d'ouvrir la PR** :
+
+- **majeur** : une étape du plan achevée ;
+- **mineur** : une sous-étape ou une fonctionnalité ;
+- **correctif** : une correction de bug.
+
+L'incrément fait partie du même commit que la modification qu'il accompagne.
+La version affichée dans le titre de la fenêtre principale est lue depuis
+l'assembly (`Assembly.GetExecutingAssembly().GetName().Version`) — jamais une
+constante en dur dans le code.
