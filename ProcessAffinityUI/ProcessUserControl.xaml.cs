@@ -28,7 +28,7 @@ namespace ProcessAffinityUI
 
         /// <summary>Fond du bandeau de nom des entrées non modifiables.</summary>
         private static readonly Brush NotModifiableNameBackgroundBrush =
-            new SolidColorBrush(Color.FromRgb(0x4D, 0x4D, 0x4D));
+            new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
 
         /// <summary>
         /// Durée d'affichage de l'infobulle. La valeur par défaut de WPF, 5 s, la
@@ -97,8 +97,7 @@ namespace ProcessAffinityUI
         /// </summary>
         private void SetModifiableMarker(Process process)
         {
-            this.ProcessIDlabel.Foreground = process.IsModifiable ? Brushes.Black : Brushes.White;
-            this.ProcessIDlabel.Background = GetProcessNameBackgroundBrush();
+            this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
         }
 
         /// <summary>
@@ -132,7 +131,35 @@ namespace ProcessAffinityUI
 
         public ImageSource Icon { get { return this.ProcessImage.Source; } }
 
-        public Brush ProcessNameLabelBackground { set { this.ProcessIDlabel.Background = value; } }
+        /// <summary>
+        /// Fond du bandeau de nom. La couleur de police suit : blanche sur le
+        /// gris des entrées non modifiables, noire sur le jaune de la mise en
+        /// évidence comme sur le blanc au repos.
+        /// </summary>
+        public Brush ProcessNameLabelBackground
+        {
+            set
+            {
+                this.ProcessIDlabel.Background = value;
+                this.ProcessIDlabel.Foreground = GetProcessNameForegroundBrush(value);
+            }
+        }
+
+        private static Brush GetProcessNameForegroundBrush(Brush background)
+        {
+            SolidColorBrush solidColorBrush = background as SolidColorBrush;
+
+            if (solidColorBrush == null)
+            {
+                return Brushes.Black;
+            }
+
+            Color color = solidColorBrush.Color;
+
+            double luminance = ((0.299d * color.R) + (0.587d * color.G) + (0.114d * color.B)) / 255d;
+
+            return luminance < 0.5d ? Brushes.White : Brushes.Black;
+        }
 
         public void SetIcon(Process process)
         {
