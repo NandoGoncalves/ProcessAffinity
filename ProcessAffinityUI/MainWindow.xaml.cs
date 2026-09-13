@@ -207,7 +207,7 @@ namespace ProcessAffinityUI
             {
                 processUserControl.Visibility = Visibility.Visible;
             }
-            else if (ProcessAffinityWindow.ToBinary(processUserControl.Process.GetProcessorAffinity(), CPUComboBox.Items.Count - 1).Substring(int.Parse(CPUComboBox.SelectedIndex.ToString()), 1) == "1") // Si CPU sélectionnée => 0 (?!)
+            else if (ProcessAffinityWindow.ToBinary((ulong)processUserControl.Process.GetProcessorAffinity(), CPUComboBox.Items.Count - 1).Substring(int.Parse(CPUComboBox.SelectedIndex.ToString()), 1) == "1") // Si CPU sélectionnée => 0 (?!)
             {
                 processUserControl.Visibility = Visibility.Visible;
             }

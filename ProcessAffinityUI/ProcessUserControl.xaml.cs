@@ -48,7 +48,7 @@ namespace ProcessAffinityUI
             }
             catch (Exception ex)
             {
-                MessageBox.Show("ProcessUserControl constructor error.\n\n" + ex.Message, AppDomain.CurrentDomain.ApplicationIdentity.FullName, MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("ProcessUserControl constructor error.\n\n" + ex.Message, AppDomain.CurrentDomain.FriendlyName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
             this.SetIcon(process);

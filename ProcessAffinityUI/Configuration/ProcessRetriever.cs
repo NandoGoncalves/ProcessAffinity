@@ -98,19 +98,19 @@ namespace ProcessAffinityUI.Configuration
             set { this["affinity"] = value; }
         }
 
-        public int GetProcessorAffinity()
+        public nuint GetProcessorAffinity()
         {
-           
+
             string[] affinityArray = Affinity.Split(';');
-            int processorAffinity = 0;
+            nuint processorAffinity = 0;
 
             for (int i = 0; i < affinityArray.Length; i++)
             {
                 if (int.Parse(affinityArray[i]) > 0)
                 {
-                    processorAffinity += (int)Math.Pow(2, i); // int.Parse(affinityArray[i]
+                    processorAffinity |= (nuint)1 << i; // int.Parse(affinityArray[i]
                 }
-                
+
             }
 
             return processorAffinity;
