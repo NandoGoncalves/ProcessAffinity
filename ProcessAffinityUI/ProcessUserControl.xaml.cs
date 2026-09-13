@@ -162,7 +162,7 @@ namespace ProcessAffinityUI
                     double displayedHeight = (CPUUsageBarHeight * singleCoreUsage) / 100d;
                     int displayedColorValue = (int)Math.Round(singleCoreUsage, MidpointRounding.AwayFromZero);
 
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsageValueLabel.Content = displayedContent; }), new object[] { });
+                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsageValueTextBlock.Text = displayedContent; }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Height = displayedHeight; }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = new System.Windows.Media.SolidColorBrush(UIntToColor((uint)ConvertToValidRGBValue(displayedColorValue))); }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.ProcessNameLabelBackground = Brushes.White; }), new object[] { });

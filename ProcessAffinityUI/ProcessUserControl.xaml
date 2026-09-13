@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-             mc:Ignorable="d" BorderBrush="{x:Null}" BorderThickness="3" Height="98" Width="102" FontWeight="Normal" Opacity="1" MouseRightButtonDown="UserControl_MouseRightButtonDown" MouseDown="UserControl_MouseDown" Background= "LightGray">
+             mc:Ignorable="d" BorderBrush="{x:Null}" BorderThickness="3" Height="83" Width="102" FontWeight="Normal" Opacity="1" MouseRightButtonDown="UserControl_MouseRightButtonDown" MouseDown="UserControl_MouseDown" Background= "LightGray">
 
     <Grid >
 
@@ -25,10 +25,22 @@
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel14" TabIndex="14" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="16,0,75,0" />
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel15" TabIndex="15" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="11,0,80,0" />
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel16" TabIndex="16" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="6,0,85,0" />        
-        <!-- Ancré en haut : la hauteur du contrôle a changé pour loger le pourcentage. -->
         <Image Height="24" Name="ProcessImage" Stretch="Fill" VerticalAlignment="Top" Margin="0,47,74,0" MouseRightButtonDown="ProcessImage_MouseRightButtonDown" />
-        <!-- Hauteur fixe : la valeur reste lisible quelle que soit la charge, la barre étant un élément distinct. -->
-        <Label Content="-" Height="18" HorizontalAlignment="Left" Margin="0,77,0,0" Name="CPUUsageValueLabel" VerticalAlignment="Top" Width="96" FontSize="11" FontWeight="SemiBold" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Padding="0" MouseEnter="CPUUsagelabel_MouseEnter" />
+        <!-- Valeur superposée à la jauge. Ce Grid délimite l'emplacement des barres,
+             pour que VerticalAlignment="Bottom" vise le bas de la jauge et non celui
+             du contrôle. Déclaré après les barres, le texte passe devant ; il est
+             transparent aux clics pour ne pas intercepter la sélection. -->
+        <Grid Height="56" VerticalAlignment="Top" IsHitTestVisible="False">
+            <TextBlock Text="-" Name="CPUUsageValueTextBlock" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,3,2" FontSize="9" FontWeight="Bold" Foreground="Black">
+                <!-- Contour clair : le texte passe alternativement sur le fond du
+                     contrôle et sur la barre, dont la teinte s'assombrit avec la
+                     charge. Un halo blanc le garde lisible dans les deux cas, sans
+                     dépendre d'une estimation du fond. -->
+                <TextBlock.Effect>
+                    <DropShadowEffect Color="White" ShadowDepth="0" BlurRadius="4" Opacity="1" />
+                </TextBlock.Effect>
+            </TextBlock>
+        </Grid>
         <CheckBox Content="" Name="SelectedUserControlCheckBox" Visibility="Hidden" HorizontalAlignment="Left" Margin="83,-1,-1,0" VerticalAlignment="Top" Width="14" Height="16"/>
 
 
