@@ -300,6 +300,32 @@ namespace ProcessAffinityUI.Threading
         public bool IsProcessMonitored { get; private set; }
 
         public bool IsService { get { return this._targetInstance == TargetInstanceEnum.Win32_Service ? true : false; } }
+
+        /// <summary>
+        /// Nom du processus hôte, renseigné sur une entrée de service.
+        /// </summary>
+        public string HostProcessName { get; set; }
+
+        /// <summary>
+        /// Services partageant le même processus hôte, renseigné uniquement
+        /// lorsqu'il y en a plusieurs — sur l'hôte comme sur chaque service.
+        /// Toute modification d'affinité ou de priorité les affecte tous.
+        /// </summary>
+        public IList<string> SharedServiceNames { get; set; }
+
+        /// <summary>
+        /// Identité d'une entrée : type, PID et nom. Le seul PID ne suffit pas,
+        /// plusieurs services partageant un même processus hôte — s'y limiter
+        /// faisait disparaître des services et faisait qu'une tuile de service
+        /// écrasait celle de son hôte au lieu de s'y ajouter.
+        /// </summary>
+        public bool IsSameEntry(Process other)
+        {
+            return other != null
+                && this.IsService == other.IsService
+                && this.ProcessID == other.ProcessID
+                && string.Equals(this.ProcessName, other.ProcessName, StringComparison.OrdinalIgnoreCase);
+        }
     }
     public enum ProcessPriorityEnum : int
     {

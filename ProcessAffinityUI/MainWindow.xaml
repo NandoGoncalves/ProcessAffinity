@@ -30,13 +30,13 @@
                 		<ComboBox x:Name="CPUComboBox" Height="30" Width="50" RenderTransformOrigin="0.625,2.314" FontSize="8"  />
                 	</InlineUIContainer>
                     <InlineUIContainer>
-                        <Label Content="0" x:Name="ProcessControlsCountLabel" HorizontalContentAlignment="Right" />
+                        <Label Content="Affichés : 0" x:Name="ProcessControlsCountLabel" HorizontalContentAlignment="Right" Padding="2,5,2,5" />
                     </InlineUIContainer>
                     <InlineUIContainer>
-                        <Label Content="/" x:Name="Slash0Label" HorizontalContentAlignment="Center" />
+                        <Label Content="/" x:Name="Slash0Label" HorizontalContentAlignment="Center" Padding="2,5,2,5" />
                     </InlineUIContainer>
                     <InlineUIContainer>
-                        <Label Content="0" x:Name="ProcessesCountLabel" HorizontalContentAlignment="Left" />
+                        <Label Content="Total : 0" x:Name="ProcessesCountLabel" HorizontalContentAlignment="Left" Padding="2,5,2,5" />
                     </InlineUIContainer>
                     <InlineUIContainer>
                         <Label Content="---" x:Name="EventsSubscritionsLabel" />
