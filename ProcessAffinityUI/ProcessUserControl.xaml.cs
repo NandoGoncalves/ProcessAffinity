@@ -158,7 +158,7 @@ namespace ProcessAffinityUI
                         singleCoreUsage = 100d;
                     }
 
-                    string displayedContent = cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") : "-";
+                    string displayedContent = cpuUsage.HasValue ? cpuUsage.Value.ToString("F0") : "-";
                     double displayedHeight = (CPUUsageBarHeight * singleCoreUsage) / 100d;
                     int displayedColorValue = (int)Math.Round(singleCoreUsage, MidpointRounding.AwayFromZero);
 

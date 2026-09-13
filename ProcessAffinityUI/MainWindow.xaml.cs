@@ -213,15 +213,22 @@ namespace ProcessAffinityUI
             if (CPUComboBox.SelectedValue.ToString() == "ALL")
             {
                 processUserControl.Visibility = Visibility.Visible;
+                return;
             }
-            else if (ProcessAffinityWindow.ToBinary((ulong)processUserControl.Process.GetProcessorAffinity(), CPUComboBox.Items.Count - 1).Substring(int.Parse(CPUComboBox.SelectedIndex.ToString()), 1) == "1") // Si CPU sélectionnée => 0 (?!)
-            {
-                processUserControl.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                processUserControl.Visibility = Visibility.Collapsed;
-            }
+
+            // Les cœurs occupent les indices 0 à N-1, « ALL » étant ajouté en
+            // dernier : le numéro de cœur est l'indice lui-même.
+            int coreNumber = CPUComboBox.SelectedIndex;
+
+            // Test direct du bit. Passer par la chaîne de ToBinary inversait
+            // l'ordre des cœurs : elle est de poids fort en tête, mais elle était
+            // indexée par la gauche.
+            bool runsOnSelectedCore =
+                coreNumber >= 0
+                && coreNumber < IntPtr.Size * 8
+                && (processUserControl.Process.GetProcessorAffinity() & ((nuint)1 << coreNumber)) != 0;
+
+            processUserControl.Visibility = runsOnSelectedCore ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void ProcessWrapPanel_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
