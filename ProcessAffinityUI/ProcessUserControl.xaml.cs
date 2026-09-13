@@ -26,14 +26,40 @@ namespace ProcessAffinityUI
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
 
+        /// <summary>
+        /// Durée d'affichage de l'infobulle. La valeur par défaut de WPF, 5 s, la
+        /// refermerait avant qu'on ait pu suivre l'évolution de la charge ; elle se
+        /// referme de toute façon dès que la souris quitte le contrôle.
+        /// </summary>
+        private const int ToolTipShowDurationMilliseconds = 3600000;
+
         private Process _process = null;
         private int _processID = 0; // Pour la suppression
         private ProcessAffinityColors _ProcessAffinityColors = null;
+
+        private readonly ToolTip _toolTip = null;
+        private readonly TextBlock _toolTipTextBlock = null;
+
+        /// <summary>Lu depuis le thread d'échantillonnage.</summary>
+        private volatile bool _isToolTipOpen = false;
 
 
         public ProcessUserControl(Process process)
         {
             InitializeComponent();
+
+            // Contenu vivant plutôt qu'une chaîne figée : le texte peut être
+            // réécrit pendant que l'infobulle est affichée.
+            this._toolTipTextBlock = new TextBlock();
+            this._toolTip = new ToolTip();
+            this._toolTip.Content = this._toolTipTextBlock;
+            this._toolTip.Opened += ToolTipOpened;
+            this._toolTip.Closed += ToolTipClosed;
+
+            this.ToolTip = this._toolTip;
+            ToolTipService.SetShowDuration(this, ToolTipShowDurationMilliseconds);
+
+            this.ToolTipOpening += ProcessUserControlToolTipOpening;
 
             SetProcess(process);
         }
@@ -166,6 +192,14 @@ namespace ProcessAffinityUI
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Height = displayedHeight; }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = new System.Windows.Media.SolidColorBrush(UIntToColor((uint)ConvertToValidRGBValue(displayedColorValue))); }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.ProcessNameLabelBackground = Brushes.White; }), new object[] { });
+
+                    // Infobulle affichée : on la tient à jour. Test hors Dispatcher
+                    // pour n'ajouter aucun travail aux tuiles dont elle est fermée,
+                    // c'est-à-dire à toutes sauf une.
+                    if (this._isToolTipOpen)
+                    {
+                        this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { UpdateToolTip(); }), new object[] { });
+                    }
 
                 }
                 catch
@@ -334,22 +368,54 @@ namespace ProcessAffinityUI
 
         private void CPUUsagelabel_MouseEnter(object sender, MouseEventArgs e)
         {
+            UpdateToolTip();
+        }
+
+        private void ProcessUserControlToolTipOpening(object sender, ToolTipEventArgs e)
+        {
+            UpdateToolTip();
+        }
+
+        private void ToolTipOpened(object sender, RoutedEventArgs e)
+        {
+            this._isToolTipOpen = true;
+
+            // ToolTipOpening n'est levé que par le survol via ToolTipService : ce
+            // second rafraîchissement garantit un contenu à jour quelle que soit
+            // la façon dont l'infobulle a été ouverte.
+            UpdateToolTip();
+        }
+
+        private void ToolTipClosed(object sender, RoutedEventArgs e)
+        {
+            this._isToolTipOpen = false;
+        }
+
+        /// <summary>
+        /// Réécrit le contenu de l'infobulle. Appelée à l'ouverture, puis à chaque
+        /// échantillon tant qu'elle reste affichée.
+        /// </summary>
+        private void UpdateToolTip()
+        {
             try
             {
-                this.ToolTip = "ProcessID : " + 
-                    this._process.ProcessID.ToString() + "\r\n" + 
-                    this._process.ProcessName + "\r\n" + 
-                    this._process.Priority.ToString() ;
+                double? cpuUsage = this._process.CPUUsage;
+
+                this._toolTipTextBlock.Text = "ProcessID : " +
+                    this._process.ProcessID.ToString() + "\r\n" +
+                    this._process.ProcessName + "\r\n" +
+                    this._process.Priority.ToString() + "\r\n" +
+                    "CPU : " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-");
             }
             catch
             {
                 if (this._process == null)
                 {
-                    this.ToolTip = "Process don't exists";
+                    this._toolTipTextBlock.Text = "Process don't exists";
                 }
                 else
                 {
-                    this.ToolTip = "ProcessID : unreachable";
+                    this._toolTipTextBlock.Text = "ProcessID : unreachable";
                 }
             }
         }
