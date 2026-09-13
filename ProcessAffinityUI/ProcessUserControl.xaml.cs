@@ -23,6 +23,9 @@ namespace ProcessAffinityUI
     /// </summary>
     public partial class ProcessUserControl : UserControl
     {
+        /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
+        private const double CPUUsageBarHeight = 56d;
+
         private Process _process = null;
         private int _processID = 0; // Pour la suppression
         private ProcessAffinityColors _ProcessAffinityColors = null;
@@ -82,35 +85,27 @@ namespace ProcessAffinityUI
                 try
                 {
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel16.Content = this.CPUUsagelabel15.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel16.Height = this.CPUUsagelabel15.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel16.Background = this.CPUUsagelabel15.Background; }), new object[] { });
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel15.Content = this.CPUUsagelabel14.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel15.Height = this.CPUUsagelabel14.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel15.Background = this.CPUUsagelabel14.Background; }), new object[] { });
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel14.Content = this.CPUUsagelabel13.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel14.Height = this.CPUUsagelabel13.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel14.Background = this.CPUUsagelabel13.Background; }), new object[] { });
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel13.Content = this.CPUUsagelabel12.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel13.Height = this.CPUUsagelabel12.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel13.Background = this.CPUUsagelabel12.Background; }), new object[] { });
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel12.Content = this.CPUUsagelabel11.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel12.Height = this.CPUUsagelabel11.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel12.Background = this.CPUUsagelabel11.Background; }), new object[] { });
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel11.Content = this.CPUUsagelabel10.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel11.Height = this.CPUUsagelabel10.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel11.Background = this.CPUUsagelabel10.Background; }), new object[] { });
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel10.Content = this.CPUUsagelabel9.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel10.Height = this.CPUUsagelabel9.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel10.Background = this.CPUUsagelabel9.Background; }), new object[] { });
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel9.Content = this.CPUUsagelabel8.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel9.Height = this.CPUUsagelabel8.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel9.Background = this.CPUUsagelabel8.Background; }), new object[] { });
 
@@ -122,47 +117,54 @@ namespace ProcessAffinityUI
 
 
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel8.Content = this.CPUUsagelabel7.Content; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel8.Height = this.CPUUsagelabel7.Height; }), new object[] { });
                     this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel8.Background = this.CPUUsagelabel7.Background; }), new object[] { });
 
-                    this.CPUUsagelabel7.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel7.Content = this.CPUUsagelabel6.Content; }), new object[] { });
                     this.CPUUsagelabel7.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel7.Height = this.CPUUsagelabel6.Height; }), new object[] { });
                     this.CPUUsagelabel7.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel7.Background = this.CPUUsagelabel6.Background; }), new object[] { });
 
-                    this.CPUUsagelabel6.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel6.Content = this.CPUUsagelabel5.Content; }), new object[] { });
                     this.CPUUsagelabel6.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel6.Height = this.CPUUsagelabel5.Height; }), new object[] { });
                     this.CPUUsagelabel6.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel6.Background = this.CPUUsagelabel5.Background; }), new object[] { });
 
-                    this.CPUUsagelabel5.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel5.Content = this.CPUUsagelabel4.Content; }), new object[] { });
                     this.CPUUsagelabel5.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel5.Height = this.CPUUsagelabel4.Height; }), new object[] { });
                     this.CPUUsagelabel5.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel5.Background = this.CPUUsagelabel4.Background; }), new object[] { });
 
-                    this.CPUUsagelabel4.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel4.Content = this.CPUUsagelabel3.Content; }), new object[] { });
                     this.CPUUsagelabel4.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel4.Height = this.CPUUsagelabel3.Height; }), new object[] { });
                     this.CPUUsagelabel4.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel4.Background = this.CPUUsagelabel3.Background; }), new object[] { });
 
-                    this.CPUUsagelabel3.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel3.Content = this.CPUUsagelabel2.Content; }), new object[] { });
                     this.CPUUsagelabel3.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel3.Height = this.CPUUsagelabel2.Height; }), new object[] { });
                     this.CPUUsagelabel3.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel3.Background = this.CPUUsagelabel2.Background; }), new object[] { });
 
-                    this.CPUUsagelabel2.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel2.Content = this.CPUUsagelabel1.Content; }), new object[] { });
                     this.CPUUsagelabel2.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel2.Height = this.CPUUsagelabel1.Height; }), new object[] { });
                     this.CPUUsagelabel2.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel2.Background = this.CPUUsagelabel1.Background; }), new object[] { });
 
-                    this.CPUUsagelabel1.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel1.Content = this.CPUUsagelabel0.Content; }), new object[] { });
                     this.CPUUsagelabel1.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel1.Height = this.CPUUsagelabel0.Height; }), new object[] { });
                     this.CPUUsagelabel1.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel1.Background = this.CPUUsagelabel0.Background; }), new object[] { });
 
-                    // Pas encore de delta disponible (premier échantillon) : on
-                    // n'affiche pas un 0 % trompeur, mais un tiret et aucune barre.
-                    int displayedCPUUsage = cpuUsage.HasValue ? (int)Math.Round(cpuUsage.Value, MidpointRounding.AwayFromZero) : 0;
-                    string displayedContent = cpuUsage.HasValue ? displayedCPUUsage.ToString() : "-";
-                    double displayedHeight = cpuUsage.HasValue ? (56d * cpuUsage.Value) / 100d : 0d;
+                    // La valeur affichée reste rapportée à la machine entière, pour
+                    // rester comparable au Gestionnaire des tâches. La barre, elle,
+                    // est pleine quand le processus sature un cœur : c'est l'échelle
+                    // parlante pour un outil d'affinité, et celle de l'application
+                    // d'origine. Pas encore de delta disponible (premier
+                    // échantillon) : un tiret, pas un 0 % trompeur.
+                    double singleCoreUsage = cpuUsage.HasValue ? cpuUsage.Value * Environment.ProcessorCount : 0d;
 
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Content = displayedContent; }), new object[] { });
+                    if (singleCoreUsage < 0d)
+                    {
+                        singleCoreUsage = 0d;
+                    }
+                    else if (singleCoreUsage > 100d)
+                    {
+                        singleCoreUsage = 100d;
+                    }
+
+                    string displayedContent = cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") : "-";
+                    double displayedHeight = (CPUUsageBarHeight * singleCoreUsage) / 100d;
+                    int displayedColorValue = (int)Math.Round(singleCoreUsage, MidpointRounding.AwayFromZero);
+
+                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsageValueLabel.Content = displayedContent; }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Height = displayedHeight; }), new object[] { });
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = new System.Windows.Media.SolidColorBrush(UIntToColor(uint.Parse(ConvertToValidRGBValue(displayedCPUUsage).ToString()))); }), new object[] { });
+                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = new System.Windows.Media.SolidColorBrush(UIntToColor((uint)ConvertToValidRGBValue(displayedColorValue))); }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.ProcessNameLabelBackground = Brushes.White; }), new object[] { });
 
                 }
@@ -182,10 +184,18 @@ namespace ProcessAffinityUI
             //byte g = (byte)((int)(color * Processes.GetRandomNumber() / 100) >> 0);
             //byte b = (byte)((int)(color * Processes.GetRandomNumber() / 100) >> 0);
 
-            byte a = (byte)(this._ProcessAffinityColors.A*color/100 >> 0);
-            byte r = (byte)((this._ProcessAffinityColors.R) >> 0);
-            byte g = (byte)((this._ProcessAffinityColors.G) >> 0);
-            byte b = (byte)((this._ProcessAffinityColors.B) >> 0);
+            // color vaut déjà 0-255 : le rapporter une seconde fois à 100 faisait
+            // dépasser 255 dès ~39 % de charge, l'octet se tronquait et la couleur
+            // s'assombrissait au lieu de s'intensifier.
+            if (color > 255)
+            {
+                color = 255;
+            }
+
+            byte a = (byte)(this._ProcessAffinityColors.A * color / 255);
+            byte r = (byte)this._ProcessAffinityColors.R;
+            byte g = (byte)this._ProcessAffinityColors.G;
+            byte b = (byte)this._ProcessAffinityColors.B;
 
             return System.Windows.Media.Color.FromArgb(a, r, g, b);
         }
@@ -193,6 +203,16 @@ namespace ProcessAffinityUI
 
         private int ConvertToValidRGBValue(int value)
         {
+            // Même plafonnement que pour la hauteur de la barre.
+            if (value < 0)
+            {
+                value = 0;
+            }
+            else if (value > 100)
+            {
+                value = 100;
+            }
+
             return (255 * value) / 100;
         }
 
