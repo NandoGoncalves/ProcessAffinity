@@ -71,6 +71,8 @@ namespace ProcessAffinityUI
                     checkBox.VerticalContentAlignment = System.Windows.VerticalAlignment.Top;
                     checkBox.Name = "CPU" + i.ToString() + "CheckBox";
                     checkBox.Tag = i;
+                    checkBox.Checked += CpuCheckBox_CheckedChanged;
+                    checkBox.Unchecked += CpuCheckBox_CheckedChanged;
                     checkBox.IsChecked = this._process == null ? true : ("1" == processorsAffinities.Substring((processorsAffinities.Length - (i + 1)), 1));
                     this.ProcessAffinityWrapPanel.Children.Add(checkBox);
 
@@ -80,12 +82,47 @@ namespace ProcessAffinityUI
 
                 processes = null;
 
+                UpdateSelectionState();
+
             }
             catch(Exception e)
             {
                 MessageBox.Show(e.Message);
             }
 
+        }
+
+        private void CpuCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
+        {
+            UpdateSelectionState();
+        }
+
+        private void UpdateSelectionState()
+        {
+            List<CheckBox> cpuCheckBoxes = this.GetCPUCheckBoxes();
+
+            bool anyChecked = cpuCheckBoxes.Any(cb => cb.IsChecked == true);
+            bool allChecked = cpuCheckBoxes.Count > 0 && cpuCheckBoxes.All(cb => cb.IsChecked == true);
+
+            this.CloseButton.IsEnabled = anyChecked;
+            this.SelectAllButton.Content = allChecked ? "Tout désélectionner" : "Tout sélectionner";
+        }
+
+        private void SelectAllButton_Click(object sender, RoutedEventArgs e)
+        {
+            List<CheckBox> cpuCheckBoxes = this.GetCPUCheckBoxes();
+            bool allChecked = cpuCheckBoxes.Count > 0 && cpuCheckBoxes.All(cb => cb.IsChecked == true);
+
+            if (allChecked)
+            {
+                this.SetCPUCheckBoxesUnchecked();
+            }
+            else
+            {
+                this.SetCPUCheckBoxesChecked();
+            }
+
+            UpdateSelectionState();
         }
 
         public List<CheckBox> GetCPUCheckBoxes()

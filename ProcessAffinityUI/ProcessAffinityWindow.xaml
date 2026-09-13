@@ -8,6 +8,7 @@
             <Border Height="22" Background="White" BorderBrush="White" BorderThickness="0" DockPanel.Dock="Top"></Border>
             <Border Height="44" Background="White" BorderBrush="White" BorderThickness="0" DockPanel.Dock="Bottom">
                 <Grid>
+                    <Button Content="Tout sélectionner" Height="23" Name="SelectAllButton" Width="120" Margin="10,0,0,0" HorizontalAlignment="Left" Click="SelectAllButton_Click" />
                     <Button Content="Close" Height="23" Name="CloseButton" Width="75" Margin="190,0,0,0" Click="CloseButton_Click" />
                 </Grid>
             </Border>
