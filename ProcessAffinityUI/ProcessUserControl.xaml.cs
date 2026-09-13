@@ -73,7 +73,7 @@ namespace ProcessAffinityUI
             try
             {
                 process.SetNotifyCPUUsageChangeDelegate(new NotifyCPUUsageChangeDelegate(this.SetCPUUsageLabel));
-                this.ProcessIDlabel.Content = process.ProcessName;
+                this.ProcessIDlabel.Text = GetEntryLabel(process);
             }
             catch (Exception ex)
             {
@@ -83,6 +83,19 @@ namespace ProcessAffinityUI
             this.SetIcon(process);
 
             return this;
+        }
+
+        /// <summary>
+        /// Une tuile de service s'intitule « NomDuService - NomDeLHôte ».
+        /// </summary>
+        private static string GetEntryLabel(Process process)
+        {
+            if (process.IsService && !string.IsNullOrEmpty(process.HostProcessName))
+            {
+                return process.ProcessName + " - " + process.HostProcessName;
+            }
+
+            return process.ProcessName;
         }
 
         public Process Process { get { return this._process; } }
@@ -339,17 +352,37 @@ namespace ProcessAffinityUI
                 case "Priority":
                     processPriorityWindow =new ProcessPriorityWindow(this._process);
                     processPriorityWindow.ShowDialog();
-                    SetProcessAffinityColors();
+                    RefreshEntriesSharingHost();
                     break;
                 case "Affinity":
                     processAffinityWindow = new ProcessAffinityWindow(this._process);
                     processAffinityWindow.ShowDialog();
+                    RefreshEntriesSharingHost();
                     break;
             }
  
         }
 
         public bool IsAlive { get; internal set; }
+
+        /// <summary>
+        /// La modification a porté sur le processus hôte : toutes les tuiles de
+        /// ce PID doivent être rafraîchies, sans quoi les tuiles sœurs affichent
+        /// une priorité et une visibilité périmées.
+        /// </summary>
+        private void RefreshEntriesSharingHost()
+        {
+            MainWindow mainWindow = Window.GetWindow(this) as MainWindow;
+
+            if (mainWindow != null)
+            {
+                mainWindow.RefreshProcessUserControls(this._processID);
+            }
+            else
+            {
+                SetProcessAffinityColors();
+            }
+        }
 
         public void SetProcessAffinityColors()
         {
@@ -401,11 +434,25 @@ namespace ProcessAffinityUI
             {
                 double? cpuUsage = this._process.CPUUsage;
 
-                this._toolTipTextBlock.Text = "ProcessID : " +
+                string text = "ProcessID : " +
                     this._process.ProcessID.ToString() + "\r\n" +
-                    this._process.ProcessName + "\r\n" +
+                    GetEntryLabel(this._process) + "\r\n" +
                     this._process.Priority.ToString() + "\r\n" +
                     "CPU : " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-");
+
+                // Affinité et priorité s'appliquent au processus hôte : quand il
+                // en héberge plusieurs, toute modification les affecte tous.
+                IList<string> sharedServiceNames = this._process.SharedServiceNames;
+
+                if (sharedServiceNames != null && sharedServiceNames.Count > 1)
+                {
+                    text = text + "\r\n\r\n" +
+                        sharedServiceNames.Count + " services dans ce processus :\r\n" +
+                        string.Join(", ", sharedServiceNames) + "\r\n" +
+                        "Toute modification d'affinité ou de priorité les affecte tous.";
+                }
+
+                this._toolTipTextBlock.Text = text;
             }
             catch
             {

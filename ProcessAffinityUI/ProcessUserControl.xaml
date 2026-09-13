@@ -7,7 +7,11 @@
 
     <Grid >
 
-        <Label Content="0000" Height="22" HorizontalAlignment="Left" Margin="0,55,0,0" Name="ProcessIDlabel" VerticalAlignment="Top" VerticalContentAlignment="Bottom" HorizontalContentAlignment="Center" Width="96" FontSize="10" FontWeight="SemiBold" Opacity="1" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" />
+        <!-- TextBlock et non Label : un libellé de service « Service - Hôte » dépasse
+             les 96 px disponibles, et un Label centré le couperait des deux côtés.
+             L'ellipse conserve le début, qui identifie l'entrée ; l'infobulle donne
+             le libellé complet. -->
+        <TextBlock Text="0000" Height="22" HorizontalAlignment="Left" Margin="0,55,0,0" Name="ProcessIDlabel" VerticalAlignment="Top" TextAlignment="Center" TextTrimming="CharacterEllipsis" Padding="0,7,0,0" Width="96" FontSize="10" FontWeight="SemiBold" Opacity="1" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" />
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel0" TabIndex="0" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="83,0,3,21" />
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel1" TabIndex="1" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="81,0,10,0" />
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel2" TabIndex="2" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="76,0,15,0" />

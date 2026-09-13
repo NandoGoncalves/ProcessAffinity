@@ -203,12 +203,24 @@ namespace ProcessAffinityUI.Threading
             lock (this._syncRoot)
             {
                 bool processExists = false;
-                if (this.Exists(p => p.ProcessID == process.ProcessID))
+                if (this.Exists(p => p.IsSameEntry(process)))
                 {
                     processExists = true;
                 }
 
                 return processExists;
+            }
+        }
+
+        /// <summary>
+        /// Copie de la liste prise sous verrou, pour une lecture depuis un autre
+        /// thread que celui qui la mute.
+        /// </summary>
+        public Process[] Snapshot()
+        {
+            lock (this._syncRoot)
+            {
+                return this.ToArray();
             }
         }
 
