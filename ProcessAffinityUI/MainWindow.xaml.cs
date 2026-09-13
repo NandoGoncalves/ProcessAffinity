@@ -509,7 +509,7 @@ namespace ProcessAffinityUI
                     services = new Processes(ComputerNameTextBox.Text, DomainTextBox.Text, UsertextBox.Text, passwordBox.Password, TargetInstanceEnum.Win32_Service);
                 }
 
-                processes.AddRange(services);
+                processes.AddProcesses(services);
 
                 // Les objets Process des services sont désormais dans la liste
                 // fusionnée : son échantillonneur les couvre. Celui de l'instance
@@ -586,7 +586,7 @@ namespace ProcessAffinityUI
             {
                 if (this.processWrapPanel.Children[i].GetType() == typeof(ProcessUserControl))
                 {
-                    this.Title = "ProcessAffinity v " + GetApplicationVersion() + " on " + ((ProcessUserControl)this.processWrapPanel.Children[i]).Process.ComputerName;
+                    this.Title = "ProcessAffinity v" + GetApplicationVersion() + " on " + ((ProcessUserControl)this.processWrapPanel.Children[i]).Process.ComputerName;
                     break;
                 }
 

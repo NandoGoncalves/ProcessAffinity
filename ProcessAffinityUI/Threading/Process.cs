@@ -19,9 +19,8 @@ namespace ProcessAffinityUI.Threading
         // Échantillon précédent, pour le calcul du % CPU par delta.
         private bool _hasCPUSample = false;
         private long _lastCPUSampleTimestamp = 0;
-        private TimeSpan _lastTotalProcessorTime = TimeSpan.Zero;
-        private DateTime _lastStartTime = DateTime.MinValue;
-        private bool _isCPUUsageUnavailable = false;
+        private long _lastTotalProcessorTime = 0;
+        private long _lastCreateTime = 0;
 
         private NotifyCPUUsageChangeDelegate notifyCPUUsageChangeDelegate = null;
         private TargetInstanceEnum _targetInstance = TargetInstanceEnum.Win32_Process;
@@ -163,48 +162,23 @@ namespace ProcessAffinityUI.Threading
         }
 
         /// <summary>
-        /// Calcule le % CPU par delta de TotalProcessorTime sur le temps réellement
+        /// Calcule le % CPU par delta du temps processeur sur le temps réellement
         /// écoulé, rapporté au nombre de processeurs logiques. Le premier passage ne
         /// produit aucune valeur : il ne fait qu'établir la référence.
+        /// Les temps sont exprimés en unités de 100 ns.
         /// </summary>
-        internal void UpdateCPUUsage(System.Diagnostics.Process systemProcess, long timestamp)
+        internal void UpdateCPUUsage(long createTime, long totalProcessorTime, long timestamp)
         {
-            if (this._isCPUUsageUnavailable)
-            {
-                return;
-            }
-
-            TimeSpan totalProcessorTime;
-            DateTime startTime;
-
-            try
-            {
-                totalProcessorTime = systemProcess.TotalProcessorTime;
-                startTime = systemProcess.StartTime;
-            }
-            catch (System.ComponentModel.Win32Exception)
-            {
-                // Processus protégé (System, csrss, Registry, Secure System...) :
-                // inutile de réessayer à chaque tick.
-                this._isCPUUsageUnavailable = true;
-                return;
-            }
-            catch (InvalidOperationException)
-            {
-                // Processus terminé entre l'énumération et la lecture.
-                return;
-            }
-
-            // Un PID réutilisé porte une date de démarrage différente : on repart
+            // Un PID réutilisé porte une date de création différente : on repart
             // d'une nouvelle référence au lieu de produire une valeur aberrante.
-            if (this._hasCPUSample && startTime == this._lastStartTime)
+            if (this._hasCPUSample && createTime == this._lastCreateTime)
             {
                 long elapsedTicks = timestamp - this._lastCPUSampleTimestamp;
 
                 if (elapsedTicks > 0)
                 {
                     double elapsedSeconds = (double)elapsedTicks / System.Diagnostics.Stopwatch.Frequency;
-                    double processorSeconds = (totalProcessorTime - this._lastTotalProcessorTime).TotalSeconds;
+                    double processorSeconds = (totalProcessorTime - this._lastTotalProcessorTime) / 10000000d;
                     double cpuUsage = processorSeconds / elapsedSeconds / Environment.ProcessorCount * 100d;
 
                     if (cpuUsage < 0d)
@@ -222,7 +196,7 @@ namespace ProcessAffinityUI.Threading
 
             this._lastTotalProcessorTime = totalProcessorTime;
             this._lastCPUSampleTimestamp = timestamp;
-            this._lastStartTime = startTime;
+            this._lastCreateTime = createTime;
             this._hasCPUSample = true;
         }
 
