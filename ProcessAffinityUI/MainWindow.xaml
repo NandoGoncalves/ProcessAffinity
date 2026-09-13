@@ -14,7 +14,7 @@
                         <ColumnDefinition />
                     </Grid.ColumnDefinitions>
                     <TextBox Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ComputerNameTextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="1" Text="." Visibility="Collapsed" />
-                    <Button Content="Load" Height="20" HorizontalAlignment="Left" Margin="495,16,0,0" Name="loadProcessesButton" VerticalAlignment="Top" Width="75" Click="loadProcessesButton_Click" TabIndex="5" />
+                    <Button Content="Load" Height="20" HorizontalAlignment="Right" Margin="0,16,30,0" Name="loadProcessesButton" VerticalAlignment="Top" Width="75" Click="loadProcessesButton_Click" TabIndex="5" />
                     <TextBox Height="20" HorizontalAlignment="Left" Margin="122,17,0,0" Name="DomainTextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="2" Text="" Visibility="Collapsed" />
                     <TextBox Height="20" HorizontalAlignment="Left" Margin="238,16,0,0" Name="UsertextBox" VerticalAlignment="Top" Width="102" FontSize="10" FontWeight="Black" TabIndex="3" Text="" Visibility="Collapsed" />
                     <Label Content="Computer" Height="21" HorizontalAlignment="Left" Margin="6,-1,0,0" Name="ComputerNameLabel" VerticalAlignment="Top" FontSize="8" FontWeight="ExtraBold" Visibility="Collapsed" />
