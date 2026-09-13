@@ -77,6 +77,15 @@ processeur logique dans l'IHM.
   confondre un masque illisible avec un masque vide, et sonder
   `PROCESS_SET_INFORMATION` séparément — quelques processus sont lisibles sans
   être modifiables.
+- **Élévation** : c'est l'appartenance du jeton élevé au groupe Administrateurs
+  qui débloque la couverture, les DACL des processus l'accordant. Mesuré :
+  lecture 137 → 308, écriture 133 → 293 sur 309. `SeDebugPrivilege`, activé par
+  `Process.EnterDebugMode()`, n'y ajoute **rien** — il contourne les DACL, déjà
+  favorables ici, mais pas la protection PPL. Restent inaccessibles en écriture
+  16 processus protégés : `System`, `Secure System`, `Registry`, `smss`,
+  `csrss`, `wininit`, `services`, `lsass`, et les composants Defender.
+  `EnterDebugMode()` lève une `Win32Exception` en session non élevée : toujours
+  l'encadrer.
 - **Processus protégés** (`System`, `csrss`, `Registry`…) : `TotalProcessorTime`
   lève. À gérer dès la boucle de collecte, sans polluer les journaux.
 - **Groupes de processeurs** : `Process.ProcessorAffinity` ne couvre qu'un seul

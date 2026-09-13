@@ -14,8 +14,33 @@ namespace ProcessAffinityUI
     /// </summary>
     public partial class App : Application
     {
+        /// <summary>
+        /// SeDebugPrivilege figure dans le jeton d'une session élevée, mais
+        /// désactivé — et OpenProcess ne tient compte que des privilèges activés.
+        /// Sans cette activation, lancer l'application en administrateur ne
+        /// change rien à la couverture.
+        ///
+        /// Appelée en tout premier : Application.Startup précède la création de
+        /// la fenêtre principale, donc celle de toute entrée dont IsModifiable
+        /// met le résultat en cache.
+        ///
+        /// Échoue sans conséquence en session non élevée, le privilège n'étant
+        /// alors pas présent dans le jeton.
+        /// </summary>
+        private static void EnableDebugPrivilege()
+        {
+            try
+            {
+                System.Diagnostics.Process.EnterDebugMode();
+            }
+            catch
+            {
+            }
+        }
+
         private void Application_Startup(object sender, StartupEventArgs e)
         {
+            EnableDebugPrivilege();
 
             if (e.Args.Length > 0)
             {
