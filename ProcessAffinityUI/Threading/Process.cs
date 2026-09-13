@@ -22,6 +22,9 @@ namespace ProcessAffinityUI.Threading
         private long _lastTotalProcessorTime = 0;
         private long _lastCreateTime = 0;
 
+        private bool? _isProcessorAffinityReadable = null;
+        private bool? _isModifiable = null;
+
         private NotifyCPUUsageChangeDelegate notifyCPUUsageChangeDelegate = null;
         private TargetInstanceEnum _targetInstance = TargetInstanceEnum.Win32_Process;
 
@@ -120,21 +123,54 @@ namespace ProcessAffinityUI.Threading
             }
         }
 
-        public nuint GetProcessorAffinity()
+        /// <summary>
+        /// Masque d'affinité, ou null lorsque la lecture échoue. Un masque nul
+        /// n'intersecte aucun cœur : confondre l'illisible avec le vide faisait
+        /// disparaître de tous les filtres les processus des autres
+        /// utilisateurs.
+        /// </summary>
+        public nuint? GetProcessorAffinity()
         {
-            nuint processorAffinity = 0;
+            nuint processorAffinity;
 
-            try
+            if (NativeProcessAccess.TryGetProcessorAffinity(this.ProcessID, out processorAffinity))
             {
-                nint affinity = (nint)System.Diagnostics.Process.GetProcessById(this.ProcessID, this.ComputerName).ProcessorAffinity;
-                processorAffinity = unchecked((nuint)affinity);
-            }
-            catch//(Exception e)
-            {
-                //System.Windows.MessageBox.Show(e.Message, "GetProcessorAffinity");
+                this._isProcessorAffinityReadable = true;
+
+                return processorAffinity;
             }
 
-            return processorAffinity;
+            this._isProcessorAffinityReadable = false;
+
+            return null;
+        }
+
+        /// <summary>
+        /// Résultat de la dernière lecture d'affinité, ou null si elle n'a pas
+        /// encore été tentée. Évite de relire pour établir la ventilation.
+        /// </summary>
+        public bool? IsProcessorAffinityReadable
+        {
+            get { return this._isProcessorAffinityReadable; }
+        }
+
+        /// <summary>
+        /// L'affinité et la priorité de ce processus peuvent-elles être écrites.
+        /// Sans ce droit, la fenêtre d'affinité s'ouvrait, acceptait des cases
+        /// cochées et validait sans que rien ne se produise. Stable pour la durée
+        /// de vie du processus, donc évalué une seule fois.
+        /// </summary>
+        public bool IsModifiable
+        {
+            get
+            {
+                if (this._isModifiable == null)
+                {
+                    this._isModifiable = NativeProcessAccess.CanModifyProcess(this.ProcessID);
+                }
+
+                return this._isModifiable.Value;
+            }
         }
 
         public void SetProcessorAffinity(nuint processorAffinity)

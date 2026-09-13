@@ -332,7 +332,24 @@ namespace ProcessAffinityUI
                        .Append(unaccounted > 1 ? " non représentées." : " non représentée.");
             }
 
-            builder.Append("\r\n").Append(visible).Append(visible > 1 ? " visibles." : " visible.");
+            builder.Append("\r\n").Append(visible).Append(visible > 1 ? " visibles" : " visible");
+
+            // Affinité illisible : affichées quel que soit le cœur, faute de
+            // savoir sur lesquels elles tournent. À ne pas imputer au filtre.
+            int unreadableAffinity = hiddenByCore == 0
+                ? 0
+                : this.processWrapPanel.Children.OfType<ProcessUserControl>()
+                      .Count(child => child.Visibility == Visibility.Visible
+                                      && child.Process != null
+                                      && child.Process.IsProcessorAffinityReadable == false);
+
+            if (unreadableAffinity > 0)
+            {
+                builder.Append(", dont ").Append(unreadableAffinity)
+                       .Append(" à l'affinité illisible");
+            }
+
+            builder.Append(".");
 
             return builder.ToString();
         }
@@ -389,13 +406,24 @@ namespace ProcessAffinityUI
             // dernier : le numéro de cœur est l'indice lui-même.
             int coreNumber = CPUComboBox.SelectedIndex;
 
+            nuint? processorAffinity = processUserControl.Process.GetProcessorAffinity();
+
+            if (processorAffinity == null)
+            {
+                // Affinité illisible : on ne sait pas sur quels cœurs le
+                // processus tourne. L'exclure du filtre reviendrait à affirmer
+                // qu'il n'en utilise aucun.
+                processUserControl.Visibility = Visibility.Visible;
+                return;
+            }
+
             // Test direct du bit. Passer par la chaîne de ToBinary inversait
             // l'ordre des cœurs : elle est de poids fort en tête, mais elle était
             // indexée par la gauche.
             bool runsOnSelectedCore =
                 coreNumber >= 0
                 && coreNumber < IntPtr.Size * 8
-                && (processUserControl.Process.GetProcessorAffinity() & ((nuint)1 << coreNumber)) != 0;
+                && (processorAffinity.Value & ((nuint)1 << coreNumber)) != 0;
 
             processUserControl.Visibility = runsOnSelectedCore ? Visibility.Visible : Visibility.Collapsed;
         }

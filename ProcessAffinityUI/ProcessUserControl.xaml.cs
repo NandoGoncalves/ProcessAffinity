@@ -26,6 +26,10 @@ namespace ProcessAffinityUI
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
 
+        /// <summary>Fond du bandeau de nom des entrées non modifiables.</summary>
+        private static readonly Brush NotModifiableNameBackgroundBrush =
+            new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
+
         /// <summary>
         /// Durée d'affichage de l'infobulle. La valeur par défaut de WPF, 5 s, la
         /// refermerait avant qu'on ait pu suivre l'évolution de la charge ; elle se
@@ -81,8 +85,33 @@ namespace ProcessAffinityUI
             }
 
             this.SetIcon(process);
+            this.SetModifiableMarker(process);
 
             return this;
+        }
+
+        /// <summary>
+        /// Les entrées dont l'affinité et la priorité ne sont pas modifiables
+        /// portent leur nom en blanc sur gris foncé. Le reste de la tuile est
+        /// inchangé.
+        /// </summary>
+        private void SetModifiableMarker(Process process)
+        {
+            this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
+        }
+
+        /// <summary>
+        /// Fond du bandeau de nom au repos. L'échantillon CPU le réécrit à chaque
+        /// seconde : sans cela le marquage serait effacé aussitôt posé.
+        /// </summary>
+        private Brush GetProcessNameBackgroundBrush()
+        {
+            if (this._process != null && !this._process.IsModifiable)
+            {
+                return NotModifiableNameBackgroundBrush;
+            }
+
+            return Brushes.White;
         }
 
         /// <summary>
@@ -102,7 +131,35 @@ namespace ProcessAffinityUI
 
         public ImageSource Icon { get { return this.ProcessImage.Source; } }
 
-        public Brush ProcessNameLabelBackground { set { this.ProcessIDlabel.Background = value; } }
+        /// <summary>
+        /// Fond du bandeau de nom. La couleur de police suit : blanche sur le
+        /// gris des entrées non modifiables, noire sur le jaune de la mise en
+        /// évidence comme sur le blanc au repos.
+        /// </summary>
+        public Brush ProcessNameLabelBackground
+        {
+            set
+            {
+                this.ProcessIDlabel.Background = value;
+                this.ProcessIDlabel.Foreground = GetProcessNameForegroundBrush(value);
+            }
+        }
+
+        private static Brush GetProcessNameForegroundBrush(Brush background)
+        {
+            SolidColorBrush solidColorBrush = background as SolidColorBrush;
+
+            if (solidColorBrush == null)
+            {
+                return Brushes.Black;
+            }
+
+            Color color = solidColorBrush.Color;
+
+            double luminance = ((0.299d * color.R) + (0.587d * color.G) + (0.114d * color.B)) / 255d;
+
+            return luminance < 0.5d ? Brushes.White : Brushes.Black;
+        }
 
         public void SetIcon(Process process)
         {
@@ -204,7 +261,7 @@ namespace ProcessAffinityUI
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsageValueTextBlock.Text = displayedContent; }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Height = displayedHeight; }), new object[] { });
                     this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = new System.Windows.Media.SolidColorBrush(UIntToColor((uint)ConvertToValidRGBValue(displayedColorValue))); }), new object[] { });
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.ProcessNameLabelBackground = Brushes.White; }), new object[] { });
+                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush(); }), new object[] { });
 
                     // Infobulle affichée : on la tient à jour. Test hors Dispatcher
                     // pour n'ajouter aucun travail aux tuiles dont elle est fermée,
@@ -439,6 +496,16 @@ namespace ProcessAffinityUI
                     GetEntryLabel(this._process) + "\r\n" +
                     this._process.Priority.ToString() + "\r\n" +
                     "CPU : " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-");
+
+                if (this._process.GetProcessorAffinity() == null)
+                {
+                    text = text + "\r\nAffinité : illisible, faute de droits sur ce processus.";
+                }
+
+                if (!this._process.IsModifiable)
+                {
+                    text = text + "\r\nAffinité et priorité non modifiables sans élévation.";
+                }
 
                 // Affinité et priorité s'appliquent au processus hôte : quand il
                 // en héberge plusieurs, toute modification les affecte tous.
