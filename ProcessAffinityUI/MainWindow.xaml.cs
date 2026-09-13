@@ -657,9 +657,26 @@ namespace ProcessAffinityUI
             //foreach (ProcessUserControl processUserControl in processUserControls)
             //{
 
-            // Toutes les tuiles du PID : la disparition de l'hôte emporte celles
-            // de ses services, qui n'ont pas d'existence propre.
-            foreach (ProcessUserControl processUserControl in this.GetProcessUserControls(process.ProcessID))
+            // Une entrée de service porte le PID de son hôte : retirer tout le
+            // PID effacerait l'hôte et les services frères pour l'arrêt d'un
+            // seul service. La disparition d'un processus, elle, emporte bien
+            // ses services, qui n'ont pas d'existence propre.
+            List<ProcessUserControl> processUserControls;
+
+            if (process.IsService)
+            {
+                ProcessUserControl serviceUserControl = this.GetProcessUserControl(process);
+
+                processUserControls = serviceUserControl == null
+                    ? new List<ProcessUserControl>()
+                    : new List<ProcessUserControl> { serviceUserControl };
+            }
+            else
+            {
+                processUserControls = this.GetProcessUserControls(process.ProcessID);
+            }
+
+            foreach (ProcessUserControl processUserControl in processUserControls)
             {
                 ProcessUserControl toRemove = processUserControl;
 
