@@ -440,6 +440,11 @@ namespace ProcessAffinityUI
                     this._process.Priority.ToString() + "\r\n" +
                     "CPU : " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-");
 
+                if (this._process.GetProcessorAffinity() == null)
+                {
+                    text = text + "\r\nAffinité : illisible, faute de droits sur ce processus.";
+                }
+
                 // Affinité et priorité s'appliquent au processus hôte : quand il
                 // en héberge plusieurs, toute modification les affecte tous.
                 IList<string> sharedServiceNames = this._process.SharedServiceNames;

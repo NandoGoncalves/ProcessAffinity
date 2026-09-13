@@ -58,7 +58,16 @@ namespace ProcessAffinityUI
             try
             {
                 ProcessAffinityUI.Threading.Processes processes = new Threading.Processes();
-                string processorsAffinities = ToBinary((ulong)(this._process == null?this._processes[0].Process.GetProcessorAffinity():this._process.GetProcessorAffinity()), processes.GetProcessorsProperties().NumberOfLogicalProcessors);
+
+                // Affinité illisible, ou sélection multiple : on ne peut refléter
+                // aucun masque courant, toutes les cases sont proposées cochées.
+                nuint? processorAffinity = this._process == null
+                    ? null
+                    : this._process.GetProcessorAffinity();
+
+                string processorsAffinities = ToBinary(
+                    (ulong)(processorAffinity ?? 0),
+                    processes.GetProcessorsProperties().NumberOfLogicalProcessors);
 
                 for (int i = 0; i < processes.GetProcessorsProperties().NumberOfLogicalProcessors; i++)
                 {
@@ -73,7 +82,9 @@ namespace ProcessAffinityUI
                     checkBox.Tag = i;
                     checkBox.Checked += CpuCheckBox_CheckedChanged;
                     checkBox.Unchecked += CpuCheckBox_CheckedChanged;
-                    checkBox.IsChecked = this._process == null ? true : ("1" == processorsAffinities.Substring((processorsAffinities.Length - (i + 1)), 1));
+                    checkBox.IsChecked = processorAffinity == null
+                        ? true
+                        : ("1" == processorsAffinities.Substring((processorsAffinities.Length - (i + 1)), 1));
                     this.ProcessAffinityWrapPanel.Children.Add(checkBox);
 
                 }
