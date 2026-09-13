@@ -31,10 +31,6 @@ namespace ProcessAffinityUI
 
         private Processes _processes = null;
         private Processes _services = null;
-        ProcessEventHandler _processEventArrived = null;
-        ProcessEventHandler _processCreated = null;
-        ProcessEventHandler _processDeleted = null;
-        ProcessEventHandler _processModified = null;
 
         public MainWindow()
         {
@@ -177,33 +173,52 @@ namespace ProcessAffinityUI
             this.SubscribeProcessEventHandlers(this._processes);
         }
 
+        /// <summary>
+        /// Abonnement inconditionnel : on détache puis on rattache. Le retrait ne
+        /// sert qu'à écarter un double abonnement — il ne doit jamais empêcher le
+        /// réabonnement. La garde précédente, qui ne rattachait que si le champ
+        /// délégué était nul ou vide, faisait que le Unsubscribe/Subscribe de
+        /// ClearProcessWrapPanel détachait sans jamais rattacher : passé la
+        /// première reconstruction du panneau, plus aucun événement n'arrivait.
+        /// </summary>
         private void SubscribeProcessEventHandlers(Processes processes)
         {
-            if (_processEventArrived == null || _processEventArrived.GetInvocationList().LongLength == 0) 
+            if (processes == null)
             {
-                _processEventArrived = new ProcessEventHandler(Processes_ProcessEventArrived);
-                processes.ProcessEventArrived += _processEventArrived;
+                SetEventsSubscriptionsIndicator();
+                return;
             }
 
-            if (_processCreated == null || _processCreated.GetInvocationList().LongLength == 0)
+            processes.ProcessEventArrived -= Processes_ProcessEventArrived;
+            processes.ProcessEventArrived += Processes_ProcessEventArrived;
+
+            processes.ProcessCreated -= Processes_ProcessCreated;
+            processes.ProcessCreated += Processes_ProcessCreated;
+
+            processes.ProcessDeleted -= Processes_ProcessDeleted;
+            processes.ProcessDeleted += Processes_ProcessDeleted;
+
+            processes.ProcessModified -= Processes_ProcessModified;
+            processes.ProcessModified += Processes_ProcessModified;
+
+            SetEventsSubscriptionsIndicator();
+        }
+
+        /// <summary>
+        /// Compte les abonnés réellement portés par l'instance courante, et non
+        /// les méthodes référencées par les champs de la fenêtre : l'indicateur
+        /// affichait 1-1-1-1 alors que l'instance n'en portait aucun. Il détecte
+        /// désormais aussi bien la perte que le double abonnement.
+        /// </summary>
+        private void SetEventsSubscriptionsIndicator()
+        {
+            if (this._processes == null)
             {
-                _processCreated = new ProcessEventHandler(Processes_ProcessCreated);
-                processes.ProcessCreated += _processCreated;
+                EventsSubscritionsLabel.Content = "---";
+                return;
             }
 
-            if (_processDeleted == null || _processDeleted.GetInvocationList().LongLength == 0)
-            {
-                _processDeleted = new ProcessEventHandler(Processes_ProcessDeleted);
-                processes.ProcessDeleted += _processDeleted;
-            }
-
-            if (_processModified == null || _processModified.GetInvocationList().LongLength == 0)
-            {
-                _processModified = new ProcessEventHandler(Processes_ProcessModified);
-                processes.ProcessModified += _processModified;
-            }
-
-            EventsSubscritionsLabel.Content = _processEventArrived.GetInvocationList().LongLength.ToString() + "-" + _processCreated.GetInvocationList().LongLength.ToString() + "-" + _processDeleted.GetInvocationList().LongLength.ToString() + "-" + _processModified.GetInvocationList().LongLength.ToString();
+            EventsSubscritionsLabel.Content = string.Join("-", this._processes.GetEventSubscriberCounts());
         }
 
         private void UnsubscribeProcessEventHandlers()
@@ -213,18 +228,22 @@ namespace ProcessAffinityUI
 
             private void UnsubscribeProcessEventHandlers(Processes processes)
         {
+                if (processes == null)
+                {
+                    return;
+                }
 
-                processes.ProcessEventArrived -= _processEventArrived;
-                processes.ProcessCreated -= _processCreated;
-                processes.ProcessDeleted -= _processDeleted;
-                processes.ProcessModified -= _processModified;
+                processes.ProcessEventArrived -= Processes_ProcessEventArrived;
+                processes.ProcessCreated -= Processes_ProcessCreated;
+                processes.ProcessDeleted -= Processes_ProcessDeleted;
+                processes.ProcessModified -= Processes_ProcessModified;
+
+                SetEventsSubscriptionsIndicator();
 
         }
 
         private void ClearProcessWrapPanel()
         {
-            UnsubscribeProcessEventHandlers();
-
             // Retirer l'élément courant en incrémentant l'indice n'en vidait
             // qu'un sur deux, laissant des tuiles périmées dès le second
             // chargement.
@@ -252,14 +271,21 @@ namespace ProcessAffinityUI
                 numberOfProcessors = processes.GetProcessorsProperties().NumberOfProcessors;
             }
 
+            // Détaché le temps de la reconstruction : l'abonnement était ajouté à
+            // chaque chargement sans jamais être retiré, et le Items.Clear() du
+            // chargement suivant le déclenchait alors qu'aucun élément n'est
+            // sélectionné — la sélection valant null, l'initialisation échouait
+            // et tout le reste du chargement était abandonné.
+            CPUComboBox.SelectionChanged -= CPUComboBox_SelectionChanged;
+
             CPUComboBox.Items.Clear();
-            for (int i = 0; i < numberOfProcessors; i++) 
+            for (int i = 0; i < numberOfProcessors; i++)
             {
                 CPUComboBox.Items.Add(i.ToString());
             }
             CPUComboBox.Items.Add("ALL");
             CPUComboBox.SelectedIndex = CPUComboBox.Items.Count - 1;
-            
+
             CPUComboBox.SelectionChanged += CPUComboBox_SelectionChanged;
         }
 
@@ -396,7 +422,11 @@ namespace ProcessAffinityUI
 
         private void SetProcessUserControlVisibility(ProcessUserControl processUserControl)
         {
-            if (CPUComboBox.SelectedValue.ToString() == "ALL")
+            object selectedValue = CPUComboBox.SelectedValue;
+
+            // Sélection nulle pendant une reconstruction de la liste : aucun
+            // filtre ne s'applique.
+            if (selectedValue == null || selectedValue.ToString() == "ALL")
             {
                 processUserControl.Visibility = Visibility.Visible;
                 return;
@@ -791,6 +821,12 @@ namespace ProcessAffinityUI
 
                 this._processes = processes;
                 this._services = services;
+
+                // L'instance abandonnée garde sinon ses gestionnaires : son
+                // watcher continuerait d'alimenter le panneau à partir d'une
+                // liste périmée. Le réabonnement à la nouvelle instance a lieu
+                // dans InitializeProcessWrapPanel, plus bas.
+                UnsubscribeProcessEventHandlers(previousProcesses);
 
                 // Un rechargement laissait tourner l'échantillonneur de l'instance
                 // précédente.

@@ -213,6 +213,24 @@ namespace ProcessAffinityUI.Threading
         }
 
         /// <summary>
+        /// Nombre d'abonnés réellement portés par chacun des quatre événements,
+        /// dans l'ordre : arrivée, création, suppression, modification.
+        /// Un événement n'expose que += et -= à l'extérieur de sa classe : sans
+        /// cet accesseur, l'indicateur ne peut compter que les champs délégués de
+        /// l'abonné, ce qui ne dit rien de l'abonnement réel.
+        /// </summary>
+        public int[] GetEventSubscriberCounts()
+        {
+            return new int[]
+            {
+                ProcessEventArrived == null ? 0 : ProcessEventArrived.GetInvocationList().Length,
+                ProcessCreated == null ? 0 : ProcessCreated.GetInvocationList().Length,
+                ProcessDeleted == null ? 0 : ProcessDeleted.GetInvocationList().Length,
+                ProcessModified == null ? 0 : ProcessModified.GetInvocationList().Length,
+            };
+        }
+
+        /// <summary>
         /// Copie de la liste prise sous verrou, pour une lecture depuis un autre
         /// thread que celui qui la mute.
         /// </summary>
