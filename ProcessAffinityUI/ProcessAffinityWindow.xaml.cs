@@ -131,7 +131,6 @@ namespace ProcessAffinityUI
             }
 
             this.SelectAllButton.IsEnabled = false;
-            this.CloseButton.IsEnabled = false;
             this.NotModifiableTextBlock.Text = "Affinity cannot be changed without elevation.";
         }
 
@@ -142,7 +141,9 @@ namespace ProcessAffinityUI
             bool anyChecked = cpuCheckBoxes.Any(cb => cb.IsChecked == true);
             bool allChecked = cpuCheckBoxes.Count > 0 && cpuCheckBoxes.All(cb => cb.IsChecked == true);
 
-            this.CloseButton.IsEnabled = anyChecked && (this._process == null || this._process.IsModifiable);
+            // Le bouton reste actif en toutes circonstances : il est aussi la
+            // sortie de la fenêtre. Le désactiver privait l'utilisateur de la
+            // sienne. Quand il n'y a rien à appliquer, il se contente de fermer.
             this.SelectAllButton.Content = allChecked ? "Deselect all" : "Select all";
         }
 
@@ -240,11 +241,13 @@ namespace ProcessAffinityUI
             {
                 SetProcessorsAffinities();
             }
-            else
+            else if (this._process != null && this._process.IsModifiable)
             {
+                // Entrée non modifiable : on ferme sans tenter une écriture qui
+                // échouerait de toute façon. Un masque vide est déjà écarté par
+                // SetProcessorAffinity.
                 SetProcessorAffinity();
             }
-
 
             this.Close();
         }

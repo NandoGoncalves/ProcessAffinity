@@ -392,9 +392,14 @@ namespace ProcessAffinityUI
                 menuItem.Header = "Affinity";
                 ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
 
-                menuItem = new MenuItem();
-                menuItem.Header = "Kill";
-                ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click +=new RoutedEventHandler(ProcessUserControlContextMenuClick);
+                // Terminer exige les mêmes droits qu'écrire l'affinité ou la
+                // priorité : ne pas proposer ce qui ne peut pas aboutir.
+                if (this._process.IsModifiable)
+                {
+                    menuItem = new MenuItem();
+                    menuItem.Header = "Kill";
+                    ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+                }
 
                 menuItem = new MenuItem();
                 menuItem.Header = "Is alive ?";
@@ -484,11 +489,50 @@ namespace ProcessAffinityUI
                 }
             }
 
-            if (!this._process.Kill())
+            uint? returnCode = this._process.Kill();
+
+            if (returnCode == null)
             {
                 MessageBox.Show(
                     "The termination request could not be sent to \"" + this._process.ProcessName + "\".",
                     ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                return;
+            }
+
+            if (returnCode.Value != 0)
+            {
+                MessageBox.Show(
+                    "\"" + this._process.ProcessName + "\" could not be terminated.\r\n\r\n" +
+                    DescribeTerminateReturnCode(returnCode.Value),
+                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Codes de retour de Win32_Process.Terminate.
+        /// </summary>
+        private static string DescribeTerminateReturnCode(uint returnCode)
+        {
+            switch (returnCode)
+            {
+                case 2:
+                    return "Access denied.";
+
+                case 3:
+                    return "Insufficient privilege. Try running ProcessAffinity as administrator.";
+
+                case 8:
+                    return "Unknown failure.";
+
+                case 9:
+                    return "Path not found.";
+
+                case 21:
+                    return "Invalid parameter.";
+
+                default:
+                    return "Windows returned code " + returnCode.ToString() + ".";
             }
         }
 

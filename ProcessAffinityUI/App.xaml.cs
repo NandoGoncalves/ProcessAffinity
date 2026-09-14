@@ -37,9 +37,23 @@ namespace ProcessAffinityUI
 
             System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (sender, e) =>
             {
+                // Observer sans rien dire est précisément ce qui avait masqué
+                // l'arrêt de l'échantillonneur à l'étape 2a.
+                System.Diagnostics.Debug.WriteLine("[ProcessAffinity] Exception de tâche non observée : " + e.Exception);
                 e.SetObserved();
             };
         }
+
+        /// <summary>
+        /// Signatures déjà signalées : l'échantillonnage pousse environ une mise
+        /// à jour par tuile et par seconde dans le dispatcher, donc une erreur
+        /// récurrente ouvrirait des centaines de boîtes de dialogue. Seule la
+        /// première occurrence d'une même erreur est montrée ; les suivantes ne
+        /// vont qu'à la trace.
+        /// </summary>
+        private static readonly HashSet<string> ReportedExceptionSignatures = new HashSet<string>();
+
+        private static readonly object ReportSyncRoot = new object();
 
         private static void ReportUnhandledException(string header, Exception exception)
         {
@@ -48,6 +62,20 @@ namespace ProcessAffinityUI
                 string detail = exception == null
                     ? "Unknown error."
                     : exception.GetType().Name + ": " + exception.Message;
+
+                System.Diagnostics.Debug.WriteLine("[ProcessAffinity] " + header + " " + detail);
+
+                bool alreadyReported;
+
+                lock (ReportSyncRoot)
+                {
+                    alreadyReported = !ReportedExceptionSignatures.Add(header + "|" + detail);
+                }
+
+                if (alreadyReported)
+                {
+                    return;
+                }
 
                 MessageBox.Show(header + "\r\n\r\n" + detail, "ProcessAffinity",
                     MessageBoxButton.OK, MessageBoxImage.Error);

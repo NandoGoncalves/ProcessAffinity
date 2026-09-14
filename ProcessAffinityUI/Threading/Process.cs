@@ -280,31 +280,48 @@ namespace ProcessAffinityUI.Threading
         /// foreach, hors du try interne. Une portée injoignable — quota WMI
         /// saturé, connexion perdue — y levait une ManagementException qui
         /// remontait jusqu'au dispatcher et fermait l'application sans un mot.
-        /// Retourne false quand la demande n'a pas pu être transmise.
+        /// Retourne le code de Win32_Process.Terminate — 0 succès, 2 accès
+        /// refusé, 3 privilège insuffisant —, ou null quand la demande n'a pas
+        /// pu être transmise. Ce code était ignoré : un refus passait pour une
+        /// réussite.
         /// </summary>
-        public bool Kill()
+        public uint? Kill()
         {
             try
             {
                 ManagementObjectCollection managementObjectCollection = GetManagementObjectCollection();
 
+                uint? returnCode = null;
+                bool invoked = false;
+
                 foreach (ManagementObject managementObject in managementObjectCollection)
                 {
+                    invoked = true;
+
                     try
                     {
-                        managementObject.InvokeMethod("Terminate", null);
+                        object result = managementObject.InvokeMethod("Terminate", null);
+                        uint code = result == null ? 0u : Convert.ToUInt32(result);
+
+                        // On retient le premier échec rencontré.
+                        if (returnCode == null || returnCode == 0u)
+                        {
+                            returnCode = code;
+                        }
                     }
                     catch
                     {
-                        // Le process peut ne plus exister
+                        return null;
                     }
                 }
 
-                return true;
+                // Aucune instance : le processus a déjà disparu, c'est le
+                // résultat recherché.
+                return invoked ? returnCode : (uint?)0u;
             }
             catch
             {
-                return false;
+                return null;
             }
         }
 
