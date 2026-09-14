@@ -53,17 +53,55 @@ namespace ProcessAffinityUI
             InitializeProcessAffinityWrapPanel();
         }
 
+        /// <summary>
+        /// Masque à refléter dans les cases, ou null quand il n'y en a pas un
+        /// seul à montrer — toutes les cases sont alors proposées cochées.
+        ///
+        /// Le bouton « Close » applique : partir de « tout coché » pour une seule
+        /// entrée revenait à lui rendre tous les cœurs au simple fait d'ouvrir
+        /// puis de refermer la fenêtre.
+        /// </summary>
+        private nuint? GetDisplayedAffinity()
+        {
+            if (this._process != null)
+            {
+                return this._process.GetProcessorAffinity();
+            }
+
+            if (this._processes == null || this._processes.Count == 0)
+            {
+                return null;
+            }
+
+            nuint? common = this._processes[0].GetProcessorAffinity();
+
+            if (common == null)
+            {
+                return null;
+            }
+
+            // Plusieurs entrées : on ne reflète un masque que si elles le
+            // partagent toutes. Sinon il n'y a rien de fidèle à montrer.
+            for (int i = 1; i < this._processes.Count; i++)
+            {
+                nuint? affinity = this._processes[i].GetProcessorAffinity();
+
+                if (affinity == null || affinity.Value != common.Value)
+                {
+                    return null;
+                }
+            }
+
+            return common;
+        }
+
         private void InitializeProcessAffinityWrapPanel()
         {
             try
             {
                 ProcessAffinityUI.Threading.Processes processes = new Threading.Processes();
 
-                // Affinité illisible, ou sélection multiple : on ne peut refléter
-                // aucun masque courant, toutes les cases sont proposées cochées.
-                nuint? processorAffinity = this._process == null
-                    ? null
-                    : this._process.GetProcessorAffinity();
+                nuint? processorAffinity = GetDisplayedAffinity();
 
                 string processorsAffinities = ToBinary(
                     (ulong)(processorAffinity ?? 0),
