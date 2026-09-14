@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -21,7 +21,7 @@ namespace ProcessAffinityUI
     public partial class ProcessPriorityWindow : Window
     {
         private Process _process = null;
-        private List<ProcessUserControl> _processes = null;
+        private List<Process> _processes = null;
 
         public ProcessPriorityWindow(Process process)
         {
@@ -33,7 +33,7 @@ namespace ProcessAffinityUI
             this.PrioritySlider.Value = this._process.Priority;
         }
 
-        public ProcessPriorityWindow(List<ProcessUserControl> processes)
+        public ProcessPriorityWindow(List<Process> processes)
         {
             InitializeComponent();
             SetProcesses(processes);
@@ -46,7 +46,7 @@ namespace ProcessAffinityUI
             return this;
         }
 
-        public void SetProcesses(List<ProcessUserControl> processes)
+        public void SetProcesses(List<Process> processes)
         {
             this._processes = processes;
             InitializePrioritySlider();
@@ -96,10 +96,17 @@ namespace ProcessAffinityUI
         {
             int appliedCount = 0;
             List<string> notModifiableNames = new List<string>();
+            List<string> goneNames = new List<string>();
 
             for (int i = 0; i < _processes.Count; i++)
             {
-                Process process = _processes[i].Process;
+                Process process = _processes[i];
+
+                if (!process.IsRunning)
+                {
+                    goneNames.Add(process.ProcessName);
+                    continue;
+                }
 
                 if (!process.IsModifiable)
                 {
@@ -119,10 +126,10 @@ namespace ProcessAffinityUI
                     //
                 }
 
-                _processes[i].SetProcessAffinityColors();
+                
             }
 
-            ProcessAffinityWindow.ReportPartialApplication("Priority", appliedCount, notModifiableNames);
+            ProcessAffinityWindow.ReportPartialApplication("Priority", appliedCount, notModifiableNames, goneNames);
         }
 
 

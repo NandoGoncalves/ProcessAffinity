@@ -122,6 +122,41 @@ namespace ProcessAffinityUI.Threading
             }
         }
 
+        /// <summary>
+        /// Le processus tourne-t-il encore. GetProcessById lève dès qu'il n'existe
+        /// plus, quels que soient les droits — là où une lecture d'affinité rendrait
+        /// null aussi bien pour un processus disparu que pour un accès refusé.
+        ///
+        /// Une entrée cochée peut se terminer entre l'ouverture de la boîte de
+        /// dialogue et l'application : sans cette distinction, l'écriture échouait
+        /// en silence et l'entrée était comptée comme appliquée.
+        /// </summary>
+        public bool IsRunning
+        {
+            get
+            {
+                try
+                {
+                    System.Diagnostics.Process.GetProcessById(this.ProcessID);
+
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Entrée cochée dans le panneau. L'état vit ici et non dans la tuile :
+        /// porté par la case à cocher, il disparaissait à chaque reconstruction du
+        /// panneau — bascule de l'affichage des services, rechargement.
+        ///
+        /// Touché depuis le seul thread de l'IHM.
+        /// </summary>
+        public bool IsSelected { get; set; }
+
         public int ProcessID { get; set; }
         public string ProcessName { get; set; }
         public string ComputerName { get; set; }

@@ -42,6 +42,12 @@
                         <Label Content="Evt:- New:- Del:- Mod:-" x:Name="EventsSubscritionsLabel" Padding="2,5,2,5" />
                     </InlineUIContainer>
                     <InlineUIContainer>
+                        <!-- Masqué tant qu'aucune tuile n'est cochée, sur le modèle
+                             du compteur de règles en échec. -->
+                        <Label Content="" x:Name="SelectedCountLabel" Padding="2,5,2,5"
+                               Foreground="#1F5C99" FontWeight="Bold" Visibility="Collapsed" />
+                    </InlineUIContainer>
+                    <InlineUIContainer>
                         <!-- Masqué tant qu'aucune règle n'est en échec : un compteur
                              à zéro en permanence n'apprend rien et encombre. -->
                         <Label Content="" x:Name="FailedRulesLabel" Padding="2,5,2,5"

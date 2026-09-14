@@ -31,6 +31,14 @@ namespace ProcessAffinityUI
         private const string SaveConfigurationHeader = "Save configuration";
         private const string RemoveConfigurationHeader = "Remove configuration";
 
+        /// <summary>
+        /// Entrées dont l'en-tête porte la portée entre parenthèses quand la
+        /// sélection n'est pas vide.
+        /// </summary>
+        private const string PriorityHeader = "Priority";
+        private const string AffinityHeader = "Affinity";
+        private const string ClearSelectionHeader = "Clear selection";
+
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
 
@@ -141,6 +149,7 @@ namespace ProcessAffinityUI
 
             this.SetIcon(process);
             this.SetModifiableMarker(process);
+            this.RestoreSelection(process);
 
             return this;
         }
@@ -319,7 +328,60 @@ namespace ProcessAffinityUI
             }
         }
 
-        public bool IsSelected{ get { return (bool)SelectedUserControlCheckBox.IsChecked;} set{ SetSelected(value);}}
+        /// <summary>
+        /// L'état est celui de l'entrée, la case n'en est que le reflet.
+        /// </summary>
+        public bool IsSelected
+        {
+            get { return this._process != null && this._process.IsSelected; }
+            set { SetSelected(value); }
+        }
+
+        /// <summary>
+        /// Rend les entrées du panneau. Posé par la fenêtre principale : la tuile
+        /// a besoin de raisonner sur la sélection entière pour savoir sur quoi
+        /// portent les actions de son menu, sans pour autant connaître la fenêtre.
+        /// </summary>
+        public static Func<Process[]> SelectionSource { get; set; }
+
+        /// <summary>
+        /// Entrées cochées, vivantes, sans doublon de PID. Une entrée dont le
+        /// processus s'est terminé a quitté la liste : elle disparaît donc d'elle-
+        /// même de la sélection.
+        /// </summary>
+        public static List<Process> GetSelectedProcesses()
+        {
+            List<Process> selected = new List<Process>();
+
+            Func<Process[]> source = SelectionSource;
+
+            if (source == null)
+            {
+                return selected;
+            }
+
+            HashSet<int> seenProcessIDs = new HashSet<int>();
+
+            foreach (Process process in source())
+            {
+                if (process == null || !process.IsSelected || process.IsService)
+                {
+                    continue;
+                }
+
+                // Deux entrées ne peuvent porter le même PID qu'en passant par un
+                // service ; la garde reste, l'action ne devant jamais s'appliquer
+                // deux fois au même processus.
+                if (!seenProcessIDs.Add(process.ProcessID))
+                {
+                    continue;
+                }
+
+                selected.Add(process);
+            }
+
+            return selected;
+        }
 
         /// <summary>
         /// Étiquettes de la courbe, résolues une fois. La plus récente est
@@ -616,14 +678,27 @@ namespace ProcessAffinityUI
                 menu.Items.Add(menuItem);
             }
             else
-            { 
+            {
+                // Quand des tuiles sont cochées, l'action porte sur la sélection,
+                // y compris si le clic droit a eu lieu ailleurs. L'entrée du menu
+                // le dit, faute de quoi le comportement serait imprévisible.
+                int selectedCount = GetSelectedProcesses().Count;
+                string scope = selectedCount > 0 ? " (" + selectedCount + " selected)" : string.Empty;
+
                 MenuItem menuItem = new MenuItem();
-                menuItem.Header = "Priority";
+                menuItem.Header = PriorityHeader + scope;
                 ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
 
                 menuItem = new MenuItem();
-                menuItem.Header = "Affinity";
+                menuItem.Header = AffinityHeader + scope;
                 ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+
+                if (selectedCount > 0)
+                {
+                    menuItem = new MenuItem();
+                    menuItem.Header = ClearSelectionHeader;
+                    ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+                }
 
                 // Terminer exige les mêmes droits qu'écrire l'affinité ou la
                 // priorité : ne pas proposer ce qui ne peut pas aboutir.
@@ -665,7 +740,45 @@ namespace ProcessAffinityUI
             ProcessPriorityWindow processPriorityWindow = null;
             ProcessAffinityWindow processAffinityWindow = null;
 
-            switch (((MenuItem)e.OriginalSource).Header.ToString())
+            // L'en-tête porte la portée entre parenthèses : on aiguille sur sa
+            // partie stable.
+            string header = ((MenuItem)e.OriginalSource).Header.ToString();
+            int parenthesis = header.IndexOf(" (");
+
+            if (parenthesis > 0)
+            {
+                header = header.Substring(0, parenthesis);
+            }
+
+            // Sélection non vide : elle prime sur la tuile visée, qui est alors
+            // ignorée. Vide : l'action porte sur la seule tuile visée.
+            List<Process> targets = GetSelectedProcesses();
+
+            if (targets.Count == 0)
+            {
+                targets.Add(this._process);
+            }
+
+            switch (header)
+            {
+                case ClearSelectionHeader:
+                    ClearSelection();
+                    return;
+
+                case PriorityHeader:
+                    processPriorityWindow = new ProcessPriorityWindow(targets);
+                    processPriorityWindow.ShowDialog();
+                    RefreshEntriesSharingHost();
+                    return;
+
+                case AffinityHeader:
+                    processAffinityWindow = new ProcessAffinityWindow(targets);
+                    processAffinityWindow.ShowDialog();
+                    RefreshEntriesSharingHost();
+                    return;
+            }
+
+            switch (header)
             {
                 case "Is alive ?":
                     switch (this._process.IsAlive())
@@ -680,16 +793,6 @@ namespace ProcessAffinityUI
                     break;
                 case "Kill":
                     KillProcess();
-                    break;
-                case "Priority":
-                    processPriorityWindow =new ProcessPriorityWindow(this._process);
-                    processPriorityWindow.ShowDialog();
-                    RefreshEntriesSharingHost();
-                    break;
-                case "Affinity":
-                    processAffinityWindow = new ProcessAffinityWindow(this._process);
-                    processAffinityWindow.ShowDialog();
-                    RefreshEntriesSharingHost();
                     break;
                 case SaveConfigurationHeader:
                     SaveConfiguration();
@@ -975,23 +1078,93 @@ namespace ProcessAffinityUI
 
         private void SetSelected(bool isSelected, Visibility? visibility)
         {
-            if (!this._process.IsService)
+            // Une entrée de service porte le PID de son hôte : la cocher
+            // reviendrait à désigner deux fois le même processus. C'est l'hôte
+            // qu'on sélectionne.
+            if (this._process == null || this._process.IsService)
             {
-                if (visibility == null)
-                {
-                    SelectedUserControlCheckBox.Visibility = isSelected ? Visibility.Visible : Visibility.Hidden;
-                    SelectedUserControlCheckBox.IsChecked = isSelected;
-                }
-                else
-                {
-                    SelectedUserControlCheckBox.Visibility = (Visibility)visibility;
-                    SelectedUserControlCheckBox.IsChecked = isSelected;
-                }
+                return;
+            }
+
+            bool changed = this._process.IsSelected != isSelected;
+
+            this._process.IsSelected = isSelected;
+
+            SelectedUserControlCheckBox.Visibility = visibility
+                ?? (isSelected ? Visibility.Visible : Visibility.Hidden);
+
+            SelectedUserControlCheckBox.IsChecked = isSelected;
+
+            if (changed)
+            {
+                NotifySelectionChanged();
             }
         }
 
+        /// <summary>
+        /// Prévient la fenêtre principale : elle seule tient le compteur de la
+        /// barre du bas, et rien d'autre ne l'aurait rafraîchi sur un simple clic.
+        /// </summary>
+        public static Action SelectionChanged { get; set; }
+
+        private static void NotifySelectionChanged()
+        {
+            Action changed = SelectionChanged;
+
+            if (changed != null)
+            {
+                changed();
+            }
+        }
+
+        /// <summary>
+        /// Décoche tout, en un geste : retrouver quelques tuiles cochées parmi
+        /// plusieurs centaines n'en est pas un. Posé par la fenêtre principale,
+        /// seule à pouvoir rafraîchir les tuiles et le compteur.
+        /// </summary>
+        public static Action ClearSelectionRequested { get; set; }
+
+        private static void ClearSelection()
+        {
+            Action clear = ClearSelectionRequested;
+
+            if (clear != null)
+            {
+                clear();
+            }
+        }
+
+        /// <summary>
+        /// Remet la case dans l'état porté par l'entrée. Appelée à la construction
+        /// de la tuile : c'est ce qui fait survivre la sélection aux
+        /// reconstructions du panneau.
+        /// </summary>
+        private void RestoreSelection(Process process)
+        {
+            if (process == null || process.IsService)
+            {
+                return;
+            }
+
+            SelectedUserControlCheckBox.IsChecked = process.IsSelected;
+            SelectedUserControlCheckBox.Visibility = process.IsSelected
+                ? Visibility.Visible
+                : Visibility.Hidden;
+        }
+
+        /// <summary>
+        /// MouseDown est levé par WPF pour tous les boutons, y compris le droit :
+        /// un clic droit basculait donc la case en même temps qu'il ouvrait le
+        /// menu, vidant la sélection avant qu'on ait pu s'en servir. Un clic droit
+        /// ouvre le menu et ne touche jamais à la sélection.
+        /// </summary>
         private void UserControl_MouseDown(object sender, MouseButtonEventArgs e)
         {
+            if (e.ChangedButton != MouseButton.Left)
+            {
+                return;
+            }
+
             SetSelected(!IsSelected);
         }
     }
