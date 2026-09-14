@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -49,6 +49,41 @@ namespace ProcessAffinityUI
 
         /// <summary>Lu depuis le thread d'échantillonnage.</summary>
         private volatile bool _isToolTipOpen = false;
+
+        /// <summary>Nombre d'étiquettes empilées formant la courbe (cf. XAML).</summary>
+        private const int CPUUsageBarCount = 17;
+
+        /// <summary>
+        /// Affichage suspendu : les tuiles continuent de faire glisser leur
+        /// historique en mémoire, mais ne poussent plus rien sur le dispatcher.
+        /// Levé quand la fenêtre passe en zone de notification. Il n'y a qu'une
+        /// fenêtre, donc l'état est global.
+        /// </summary>
+        public static bool IsDisplaySuspended { get; set; }
+
+        /// <summary>
+        /// Historique glissant, du plus récent au plus ancien. Il vit ici et non
+        /// dans les étiquettes : c'est ce qui permet de continuer à le décaler
+        /// quand l'affichage est suspendu, et de retrouver une courbe continue
+        /// à la restauration plutôt qu'un trou.
+        ///
+        /// Écrit par le thread d'échantillonnage, lu par celui de l'IHM, sans
+        /// verrou : au pire une barre d'un relevé se mélange au suivant, ce qui
+        /// ne se voit pas sur cinq pixels de large.
+        /// </summary>
+        private readonly double[] _barHeights = new double[CPUUsageBarCount];
+        private readonly Brush[] _barBrushes = new Brush[CPUUsageBarCount];
+        private string _displayedValue = "-";
+
+        /// <summary>Étiquettes de la courbe, de la plus récente à la plus ancienne.</summary>
+        private Label[] _bars = null;
+
+        /// <summary>
+        /// Pinceaux de la courbe, indexés par pourcentage. Sans ce cache, le
+        /// rendu allouait un pinceau par barre et par relevé, soit plus de cinq
+        /// mille par seconde.
+        /// </summary>
+        private static readonly Brush[] BarBrushesByPercent = new Brush[101];
 
 
         public ProcessUserControl(Process process)
@@ -232,115 +267,148 @@ namespace ProcessAffinityUI
 
         public bool IsSelected{ get { return (bool)SelectedUserControlCheckBox.IsChecked;} set{ SetSelected(value);}}
 
+        /// <summary>
+        /// Étiquettes de la courbe, résolues une fois. La plus récente est
+        /// CPUUsagelabel0.
+        /// </summary>
+        private Label[] GetBars()
+        {
+            if (this._bars == null)
+            {
+                Label[] bars = new Label[CPUUsageBarCount];
+
+                for (int i = 0; i < CPUUsageBarCount; i++)
+                {
+                    bars[i] = (Label)this.FindName("CPUUsagelabel" + i.ToString());
+                }
+
+                this._bars = bars;
+            }
+
+            return this._bars;
+        }
+
+        /// <summary>
+        /// Pinceau de la barre pour un pourcentage donné. Les cent-une valeurs
+        /// possibles sont mises en cache et gelées : elles sont partagées entre
+        /// toutes les tuiles.
+        /// </summary>
+        private Brush GetBarBrush(int percent)
+        {
+            if (percent < 0)
+            {
+                percent = 0;
+            }
+            else if (percent > 100)
+            {
+                percent = 100;
+            }
+
+            Brush brush = BarBrushesByPercent[percent];
+
+            if (brush == null)
+            {
+                brush = new SolidColorBrush(UIntToColor((uint)ConvertToValidRGBValue(percent)));
+                brush.Freeze();
+                BarBrushesByPercent[percent] = brush;
+            }
+
+            return brush;
+        }
+
+        /// <summary>
+        /// Appelée à chaque relevé depuis le thread d'échantillonnage. Le décalage
+        /// de l'historique se fait toujours, en mémoire ; seul le rendu dépend de
+        /// l'état de l'affichage.
+        ///
+        /// Ce rendu tenait auparavant en trente-six opérations postées par tuile
+        /// et par relevé — une par étiquette et par propriété — lancées depuis une
+        /// tâche du pool. Il en reste une seule, qui écrit tout.
+        /// </summary>
         private void SetCPUUsageLabel(double? cpuUsage)
         {
-            // Une tuile pousse une trentaine d'opérations par seconde dans le
-            // dispatcher : aucune ne doit être postée une fois l'arrêt engagé.
             if (this.Dispatcher.HasShutdownStarted || this.Dispatcher.HasShutdownFinished)
             {
                 return;
             }
 
-            Task.Run(() => {
-                try
+            // La valeur affichée reste rapportée à la machine entière, pour
+            // rester comparable au Gestionnaire des tâches. La barre, elle,
+            // est pleine quand le processus sature un cœur : c'est l'échelle
+            // parlante pour un outil d'affinité, et celle de l'application
+            // d'origine. Pas encore de delta disponible (premier
+            // échantillon) : un tiret, pas un 0 % trompeur.
+            double singleCoreUsage = cpuUsage.HasValue ? cpuUsage.Value * Environment.ProcessorCount : 0d;
+
+            if (singleCoreUsage < 0d)
+            {
+                singleCoreUsage = 0d;
+            }
+            else if (singleCoreUsage > 100d)
+            {
+                singleCoreUsage = 100d;
+            }
+
+            // Décalage de l'historique, fait dans tous les cas : c'est lui qui
+            // garde la courbe continue quand l'affichage est suspendu.
+            for (int i = CPUUsageBarCount - 1; i > 0; i--)
+            {
+                this._barHeights[i] = this._barHeights[i - 1];
+                this._barBrushes[i] = this._barBrushes[i - 1];
+            }
+
+            this._barHeights[0] = (CPUUsageBarHeight * singleCoreUsage) / 100d;
+            this._barBrushes[0] = GetBarBrush((int)Math.Round(singleCoreUsage, MidpointRounding.AwayFromZero));
+            this._displayedValue = cpuUsage.HasValue ? cpuUsage.Value.ToString("F0") : "-";
+
+            if (IsDisplaySuspended)
+            {
+                return;
+            }
+
+            this.Dispatcher.BeginInvoke(new Action(this.RefreshDisplay));
+        }
+
+        /// <summary>
+        /// Écrit l'historique en mémoire dans les étiquettes. Appelée à chaque
+        /// relevé quand l'affichage est actif, et une seule fois par tuile à la
+        /// restauration — directement, sans passer par le dispatcher, puisqu'on
+        /// est alors déjà sur son thread.
+        /// </summary>
+        public void RefreshDisplay()
+        {
+            try
+            {
+                Label[] bars = GetBars();
+
+                for (int i = 0; i < CPUUsageBarCount; i++)
                 {
+                    Brush brush = this._barBrushes[i];
 
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel16.Height = this.CPUUsagelabel15.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel16.Background = this.CPUUsagelabel15.Background; }), new object[] { });
-
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel15.Height = this.CPUUsagelabel14.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel15.Background = this.CPUUsagelabel14.Background; }), new object[] { });
-
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel14.Height = this.CPUUsagelabel13.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel14.Background = this.CPUUsagelabel13.Background; }), new object[] { });
-
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel13.Height = this.CPUUsagelabel12.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel13.Background = this.CPUUsagelabel12.Background; }), new object[] { });
-
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel12.Height = this.CPUUsagelabel11.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel12.Background = this.CPUUsagelabel11.Background; }), new object[] { });
-
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel11.Height = this.CPUUsagelabel10.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel11.Background = this.CPUUsagelabel10.Background; }), new object[] { });
-
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel10.Height = this.CPUUsagelabel9.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel10.Background = this.CPUUsagelabel9.Background; }), new object[] { });
-
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel9.Height = this.CPUUsagelabel8.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel9.Background = this.CPUUsagelabel8.Background; }), new object[] { });
-
-
-
-
-
-
-
-
-
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel8.Height = this.CPUUsagelabel7.Height; }), new object[] { });
-                    this.CPUUsagelabel8.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel8.Background = this.CPUUsagelabel7.Background; }), new object[] { });
-
-                    this.CPUUsagelabel7.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel7.Height = this.CPUUsagelabel6.Height; }), new object[] { });
-                    this.CPUUsagelabel7.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel7.Background = this.CPUUsagelabel6.Background; }), new object[] { });
-
-                    this.CPUUsagelabel6.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel6.Height = this.CPUUsagelabel5.Height; }), new object[] { });
-                    this.CPUUsagelabel6.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel6.Background = this.CPUUsagelabel5.Background; }), new object[] { });
-
-                    this.CPUUsagelabel5.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel5.Height = this.CPUUsagelabel4.Height; }), new object[] { });
-                    this.CPUUsagelabel5.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel5.Background = this.CPUUsagelabel4.Background; }), new object[] { });
-
-                    this.CPUUsagelabel4.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel4.Height = this.CPUUsagelabel3.Height; }), new object[] { });
-                    this.CPUUsagelabel4.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel4.Background = this.CPUUsagelabel3.Background; }), new object[] { });
-
-                    this.CPUUsagelabel3.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel3.Height = this.CPUUsagelabel2.Height; }), new object[] { });
-                    this.CPUUsagelabel3.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel3.Background = this.CPUUsagelabel2.Background; }), new object[] { });
-
-                    this.CPUUsagelabel2.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel2.Height = this.CPUUsagelabel1.Height; }), new object[] { });
-                    this.CPUUsagelabel2.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel2.Background = this.CPUUsagelabel1.Background; }), new object[] { });
-
-                    this.CPUUsagelabel1.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel1.Height = this.CPUUsagelabel0.Height; }), new object[] { });
-                    this.CPUUsagelabel1.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel1.Background = this.CPUUsagelabel0.Background; }), new object[] { });
-
-                    // La valeur affichée reste rapportée à la machine entière, pour
-                    // rester comparable au Gestionnaire des tâches. La barre, elle,
-                    // est pleine quand le processus sature un cœur : c'est l'échelle
-                    // parlante pour un outil d'affinité, et celle de l'application
-                    // d'origine. Pas encore de delta disponible (premier
-                    // échantillon) : un tiret, pas un 0 % trompeur.
-                    double singleCoreUsage = cpuUsage.HasValue ? cpuUsage.Value * Environment.ProcessorCount : 0d;
-
-                    if (singleCoreUsage < 0d)
+                    if (brush == null)
                     {
-                        singleCoreUsage = 0d;
-                    }
-                    else if (singleCoreUsage > 100d)
-                    {
-                        singleCoreUsage = 100d;
+                        continue;
                     }
 
-                    string displayedContent = cpuUsage.HasValue ? cpuUsage.Value.ToString("F0") : "-";
-                    double displayedHeight = (CPUUsageBarHeight * singleCoreUsage) / 100d;
-                    int displayedColorValue = (int)Math.Round(singleCoreUsage, MidpointRounding.AwayFromZero);
-
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsageValueTextBlock.Text = displayedContent; }), new object[] { });
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Height = displayedHeight; }), new object[] { });
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = new System.Windows.Media.SolidColorBrush(UIntToColor((uint)ConvertToValidRGBValue(displayedColorValue))); }), new object[] { });
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush(); }), new object[] { });
-
-                    // Infobulle affichée : on la tient à jour. Test hors Dispatcher
-                    // pour n'ajouter aucun travail aux tuiles dont elle est fermée,
-                    // c'est-à-dire à toutes sauf une.
-                    if (this._isToolTipOpen)
-                    {
-                        this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { UpdateToolTip(); }), new object[] { });
-                    }
-
+                    bars[i].Height = this._barHeights[i];
+                    bars[i].Background = brush;
                 }
-                catch
+
+                this.CPUUsageValueTextBlock.Text = this._displayedValue;
+                this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
+
+                // Infobulle affichée : on la tient à jour. Test hors du rendu des
+                // barres pour n'ajouter aucun travail aux tuiles dont elle est
+                // fermée, c'est-à-dire à toutes sauf une.
+                if (this._isToolTipOpen)
                 {
-                    this.CPUUsagelabel0.Dispatcher.BeginInvoke(new Action(() => { this.CPUUsagelabel0.Background = Brushes.Gray; }), new object[] { });
+                    UpdateToolTip();
                 }
-            });
+            }
+            catch
+            {
+                this.CPUUsagelabel0.Background = Brushes.Gray;
+            }
         }
 
         /// <summary>

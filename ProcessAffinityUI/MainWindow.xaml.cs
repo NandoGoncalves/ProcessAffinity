@@ -67,15 +67,10 @@ namespace ProcessAffinityUI
 
         }
 
-        private void InitializeProcessWrapPanel()
-        {
-            if (this._processes == null)
-            {
-                this._processes = new Processes();
-            }
-
-            this.InitializeProcessWrapPanel(this._processes);
-        }
+        // La surcharge sans argument n'avait plus qu'un appelant, la restauration
+        // depuis la zone de notification, qui ne reconstruit plus le panneau.
+        // Elle créait au passage une instance Processes de secours que personne
+        // n'attendait.
 
         private void InitializeProcessWrapPanel(Processes processes)
         {
@@ -1069,6 +1064,21 @@ namespace ProcessAffinityUI
             }
         }
 
+        /// <summary>
+        /// Réécrit chaque tuile depuis son historique en mémoire, celui-ci ayant
+        /// continué de glisser pendant la réduction. La courbe est donc continue
+        /// au retour : elle couvre la période masquée.
+        /// </summary>
+        private void RefreshProcessUserControlsDisplay()
+        {
+            foreach (ProcessUserControl processUserControl in this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                processUserControl.RefreshDisplay();
+            }
+
+            SetCounters();
+        }
+
         private void ProcessAffinityNotifyIconMouseDoubleClick(object sender, System.Windows.Forms.MouseEventArgs e)
         {
             this.WindowState = WindowState.Normal;
@@ -1078,7 +1088,16 @@ namespace ProcessAffinityUI
         {
             if (this.WindowState == WindowState.Minimized)
             {
-                this.ClearProcessWrapPanel();
+                // Seul l'affichage s'arrête. Le suivi continue à l'identique :
+                // liste, créations, suppressions, échantillonnage et balayage des
+                // services.
+                //
+                // Le panneau n'est plus vidé. Le vider ne libérait rien — les
+                // délégués de notification maintenaient les tuiles en vie, et
+                // elles continuaient de poster onze mille opérations par seconde
+                // hors de l'arbre visuel — et sa reconstruction coûtait près de
+                // cinq secondes au retour.
+                ProcessUserControl.IsDisplaySuspended = true;
 
                 this.ShowInTaskbar = false;
                 _processAffinityNotifyIcon.BalloonTipTitle = "ProcessAffinity minimized Sucessfully";
@@ -1088,10 +1107,17 @@ namespace ProcessAffinityUI
             }
             else if (this.WindowState == WindowState.Normal)
             {
+                ProcessUserControl.IsDisplaySuspended = false;
+
                 _processAffinityNotifyIcon.Visible = false;
                 this.ShowInTaskbar = true;
 
-                this.InitializeProcessWrapPanel();
+                // Remise à niveau directe, sur le thread de l'IHM où l'on se
+                // trouve déjà : aucune opération n'est poussée, donc aucune
+                // rafale. Les tuiles sont restées en place et le panneau a suivi
+                // les créations et les suppressions pendant la réduction — il n'y
+                // a ni reconstruction, ni décalage à rattraper.
+                this.RefreshProcessUserControlsDisplay();
             }
         }
 
