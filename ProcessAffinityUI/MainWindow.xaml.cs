@@ -214,11 +214,16 @@ namespace ProcessAffinityUI
         {
             if (this._processes == null)
             {
-                EventsSubscritionsLabel.Content = "---";
+                EventsSubscritionsLabel.Content = "Evt:- New:- Del:- Mod:-";
                 return;
             }
 
-            EventsSubscritionsLabel.Content = string.Join("-", this._processes.GetEventSubscriberCounts());
+            // Chaque nombre précédé de ce qu'il désigne : « 1-1-1-1 » n'était
+            // lisible que pour qui connaissait l'ordre des quatre événements.
+            int[] counts = this._processes.GetEventSubscriberCounts();
+
+            EventsSubscritionsLabel.Content =
+                "Evt:" + counts[0] + " New:" + counts[1] + " Del:" + counts[2] + " Mod:" + counts[3];
         }
 
         private void UnsubscribeProcessEventHandlers()
@@ -336,29 +341,27 @@ namespace ProcessAffinityUI
 
             StringBuilder builder = new StringBuilder();
 
-            builder.Append(total).Append(" entrées au total.");
+            builder.Append(total).Append(total > 1 ? " entries in total." : " entry in total.");
 
             if (hiddenByCore > 0)
             {
                 builder.Append("\r\n").Append(hiddenByCore)
-                       .Append(hiddenByCore > 1 ? " masquées" : " masquée")
-                       .Append(" par le filtre CPU ")
-                       .Append(this.CPUComboBox.SelectedValue).Append(".");
+                       .Append(" hidden by the CPU ")
+                       .Append(this.CPUComboBox.SelectedValue).Append(" filter.");
             }
 
             if (hiddenServices > 0)
             {
                 builder.Append("\r\n").Append(hiddenServices)
-                       .Append(hiddenServices > 1 ? " services masqués." : " service masqué.");
+                       .Append(hiddenServices > 1 ? " services hidden." : " service hidden.");
             }
 
             if (unaccounted > 0)
             {
-                builder.Append("\r\n").Append(unaccounted)
-                       .Append(unaccounted > 1 ? " non représentées." : " non représentée.");
+                builder.Append("\r\n").Append(unaccounted).Append(" not shown.");
             }
 
-            builder.Append("\r\n").Append(visible).Append(visible > 1 ? " visibles" : " visible");
+            builder.Append("\r\n").Append(visible).Append(" visible");
 
             // Affinité illisible : affichées quel que soit le cœur, faute de
             // savoir sur lesquels elles tournent. À ne pas imputer au filtre.
@@ -371,8 +374,8 @@ namespace ProcessAffinityUI
 
             if (unreadableAffinity > 0)
             {
-                builder.Append(", dont ").Append(unreadableAffinity)
-                       .Append(" à l'affinité illisible");
+                builder.Append(", of which ").Append(unreadableAffinity)
+                       .Append(" with unknown affinity");
             }
 
             builder.Append(".");
@@ -608,8 +611,8 @@ namespace ProcessAffinityUI
         /// </summary>
         private void SetCounters()
         {
-            this.ProcessControlsCountLabel.Content = "Affichés : " + GetVisibleProcessUserControlCount().ToString();
-            this.ProcessesCountLabel.Content = "Total : " + (this._processes == null ? 0 : this._processes.Count).ToString();
+            this.ProcessControlsCountLabel.Content = "Displayed: " + GetVisibleProcessUserControlCount().ToString();
+            this.ProcessesCountLabel.Content = "Total: " + (this._processes == null ? 0 : this._processes.Count).ToString();
         }
 
         private int GetVisibleProcessUserControlCount()

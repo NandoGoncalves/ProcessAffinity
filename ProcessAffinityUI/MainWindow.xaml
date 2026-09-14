@@ -22,7 +22,7 @@
                     <Label Content="User" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="238,-1,0,0" Name="UserLabel" VerticalAlignment="Top" Visibility="Collapsed" />
                     <Label Content="Password" FontSize="8" FontWeight="ExtraBold" HorizontalAlignment="Left" Margin="353,-1,0,24" Name="Passwordlabel" Visibility="Collapsed" />
                     <PasswordBox Height="21" HorizontalAlignment="Left" Margin="353,15,0,0" Name="passwordBox" VerticalAlignment="Top" Width="120" FontSize="10" FontWeight="Black" TabIndex="4" Password="" Visibility="Collapsed" />
-                    <CheckBox Content="Afficher les services" Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ShowServicesCheckBox" VerticalAlignment="Top" Width="160" FontSize="10" IsChecked="False" Checked="ShowServicesCheckBox_CheckedChanged" Unchecked="ShowServicesCheckBox_CheckedChanged" />
+                    <CheckBox Content="Show services" Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ShowServicesCheckBox" VerticalAlignment="Top" Width="160" FontSize="10" IsChecked="False" Checked="ShowServicesCheckBox_CheckedChanged" Unchecked="ShowServicesCheckBox_CheckedChanged" />
                 </Grid>
             </Border>
             <Border Height="44" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Bottom">
@@ -30,16 +30,16 @@
                 		<ComboBox x:Name="CPUComboBox" Height="30" Width="50" RenderTransformOrigin="0.625,2.314" FontSize="8"  />
                 	</InlineUIContainer>
                     <InlineUIContainer>
-                        <Label Content="Affichés : 0" x:Name="ProcessControlsCountLabel" HorizontalContentAlignment="Right" Padding="2,5,2,5" />
+                        <Label Content="Displayed: 0" x:Name="ProcessControlsCountLabel" HorizontalContentAlignment="Right" Padding="2,5,2,5" />
                     </InlineUIContainer>
                     <InlineUIContainer>
                         <Label Content="/" x:Name="Slash0Label" HorizontalContentAlignment="Center" Padding="2,5,2,5" />
                     </InlineUIContainer>
                     <InlineUIContainer>
-                        <Label Content="Total : 0" x:Name="ProcessesCountLabel" HorizontalContentAlignment="Left" Padding="2,5,2,5" />
+                        <Label Content="Total: 0" x:Name="ProcessesCountLabel" HorizontalContentAlignment="Left" Padding="2,5,2,5" />
                     </InlineUIContainer>
                     <InlineUIContainer>
-                        <Label Content="---" x:Name="EventsSubscritionsLabel" />
+                        <Label Content="Evt:- New:- Del:- Mod:-" x:Name="EventsSubscritionsLabel" Padding="2,5,2,5" />
                     </InlineUIContainer>                    
                 </TextBlock>
             </Border>

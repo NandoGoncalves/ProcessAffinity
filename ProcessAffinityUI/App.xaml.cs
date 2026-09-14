@@ -15,6 +15,50 @@ namespace ProcessAffinityUI
     public partial class App : Application
     {
         /// <summary>
+        /// Sans ces gestionnaires, une exception non interceptée fermait
+        /// l'application sans un mot : sur le thread de l'IHM, WPF termine le
+        /// processus faute de gestionnaire ; sur un autre thread, le CLR le
+        /// termine toujours.
+        /// </summary>
+        private void InstallGlobalExceptionHandlers()
+        {
+            this.DispatcherUnhandledException += (sender, e) =>
+            {
+                // Récupérable : on signale et on laisse l'application vivre.
+                ReportUnhandledException("An unexpected error occurred.", e.Exception);
+                e.Handled = true;
+            };
+
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                // Non récupérable, mais au moins l'utilisateur saura pourquoi.
+                ReportUnhandledException("A fatal error occurred, the application will close.", e.ExceptionObject as Exception);
+            };
+
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                e.SetObserved();
+            };
+        }
+
+        private static void ReportUnhandledException(string header, Exception exception)
+        {
+            try
+            {
+                string detail = exception == null
+                    ? "Unknown error."
+                    : exception.GetType().Name + ": " + exception.Message;
+
+                MessageBox.Show(header + "\r\n\r\n" + detail, "ProcessAffinity",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch
+            {
+                // Ne jamais laisser le rapport d'erreur provoquer une erreur.
+            }
+        }
+
+        /// <summary>
         /// SeDebugPrivilege figure dans le jeton d'une session élevée, mais
         /// désactivé — et OpenProcess ne tient compte que des privilèges activés.
         /// Sans cette activation, lancer l'application en administrateur ne
@@ -40,6 +84,7 @@ namespace ProcessAffinityUI
 
         private void Application_Startup(object sender, StartupEventArgs e)
         {
+            InstallGlobalExceptionHandlers();
             EnableDebugPrivilege();
 
             if (e.Args.Length > 0)

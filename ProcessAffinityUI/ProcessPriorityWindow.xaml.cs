@@ -118,7 +118,7 @@ namespace ProcessAffinityUI
                 _processes[i].SetProcessAffinityColors();
             }
 
-            ProcessAffinityWindow.ReportPartialApplication("Priorité", appliedCount, notModifiableNames);
+            ProcessAffinityWindow.ReportPartialApplication("Priority", appliedCount, notModifiableNames);
         }
 
 

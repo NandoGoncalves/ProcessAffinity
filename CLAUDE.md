@@ -96,12 +96,17 @@ processeur logique dans l'IHM.
 
 ## Conventions
 
-- Échanges et messages d'interface en français.
+- Interface en anglais : infobulles, libellés, boutons, messages, titres de
+  fenêtres et entrées de menu. Échanges, commentaires du code et messages de
+  commit en français.
 - Un commit par étape du plan, avec l'application en état de marche.
 - Ne pas élargir le périmètre d'une étape sans validation explicite.
 - La description de chaque PR énonce la demande d'origine avant la liste des
   modifications. Toute modification non demandée explicitement y est signalée
   comme telle.
+- Chaque branche est créée depuis `main` à jour, jamais depuis une branche de
+  travail en cours. Une PR basée sur une autre branche se ferme automatiquement
+  quand celle-ci est fusionnée, et doit alors être recréée.
 
 ## Versionnement
 

@@ -23,6 +23,9 @@ namespace ProcessAffinityUI
     /// </summary>
     public partial class ProcessUserControl : UserControl
     {
+        /// <summary>Titre des boîtes de dialogue.</summary>
+        private const string ApplicationName = "ProcessAffinity";
+
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
 
@@ -81,7 +84,7 @@ namespace ProcessAffinityUI
             }
             catch (Exception ex)
             {
-                MessageBox.Show("ProcessUserControl constructor error.\n\n" + ex.Message, AppDomain.CurrentDomain.FriendlyName, MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Could not initialise the process tile.\r\n\r\n" + ex.Message, ApplicationName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
             this.SetIcon(process);
@@ -279,6 +282,24 @@ namespace ProcessAffinityUI
             });
         }
 
+        /// <summary>
+        /// Nombre de cœurs autorisés sur le nombre de processeurs logiques, ou
+        /// « unknown » : un masque illisible ne doit pas être compté comme nul.
+        /// </summary>
+        private string GetAffinityText()
+        {
+            nuint? processorAffinity = this._process.GetProcessorAffinity();
+
+            if (processorAffinity == null)
+            {
+                return "unknown";
+            }
+
+            int allowedCoreCount = System.Numerics.BitOperations.PopCount((ulong)processorAffinity.Value);
+
+            return allowedCoreCount.ToString() + "/" + Environment.ProcessorCount.ToString();
+        }
+
         public int ProcessID { get { return this._processID; } }
 
         private System.Windows.Media.Color UIntToColor(uint color)
@@ -404,7 +425,7 @@ namespace ProcessAffinityUI
                     }
                     break;
                 case "Kill":
-                    this._process.Kill();
+                    KillProcess();
                     break;
                 case "Priority":
                     processPriorityWindow =new ProcessPriorityWindow(this._process);
@@ -418,6 +439,57 @@ namespace ProcessAffinityUI
                     break;
             }
  
+        }
+
+        /// <summary>
+        /// Refus sur les processus critiques, confirmation sur une entrée de
+        /// service — dont la terminaison emporte le processus hôte, et donc tous
+        /// les services qu'il héberge.
+        /// </summary>
+        private void KillProcess()
+        {
+            if (this._process.IsCriticalSystemProcess)
+            {
+                MessageBox.Show(
+                    "\"" + this._process.ProcessName + "\" is a critical system process.\r\n\r\n" +
+                    "Terminating it would crash Windows. This action is not allowed.",
+                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                return;
+            }
+
+            if (this._process.IsService)
+            {
+                string hostName = string.IsNullOrEmpty(this._process.HostProcessName)
+                    ? "its host process"
+                    : "\"" + this._process.HostProcessName + "\"";
+
+                string message = "\"" + this._process.ProcessName + "\" is a service.\r\n\r\n" +
+                    "Terminating it kills " + hostName + " (PID " + this._process.ProcessID + ")";
+
+                IList<string> sharedServiceNames = this._process.SharedServiceNames;
+
+                if (sharedServiceNames != null && sharedServiceNames.Count > 1)
+                {
+                    message = message + ", and with it the " + sharedServiceNames.Count +
+                        " services it hosts:\r\n" + string.Join(", ", sharedServiceNames);
+                }
+
+                message = message + ".\r\n\r\nContinue?";
+
+                if (MessageBox.Show(message, ApplicationName, MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                    != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+
+            if (!this._process.Kill())
+            {
+                MessageBox.Show(
+                    "The termination request could not be sent to \"" + this._process.ProcessName + "\".",
+                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         public bool IsAlive { get; internal set; }
@@ -491,20 +563,16 @@ namespace ProcessAffinityUI
             {
                 double? cpuUsage = this._process.CPUUsage;
 
-                string text = "ProcessID : " +
+                string text = "Process ID: " +
                     this._process.ProcessID.ToString() + "\r\n" +
                     GetEntryLabel(this._process) + "\r\n" +
-                    this._process.Priority.ToString() + "\r\n" +
-                    "CPU : " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-");
-
-                if (this._process.GetProcessorAffinity() == null)
-                {
-                    text = text + "\r\nAffinité : illisible, faute de droits sur ce processus.";
-                }
+                    "Priority: " + this._process.Priority.ToString() + "\r\n" +
+                    "Affinity: " + GetAffinityText() + "\r\n" +
+                    "CPU: " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-");
 
                 if (!this._process.IsModifiable)
                 {
-                    text = text + "\r\nAffinité et priorité non modifiables sans élévation.";
+                    text = text + "\r\nAffinity and priority cannot be changed without elevation.";
                 }
 
                 // Affinité et priorité s'appliquent au processus hôte : quand il
@@ -514,9 +582,9 @@ namespace ProcessAffinityUI
                 if (sharedServiceNames != null && sharedServiceNames.Count > 1)
                 {
                     text = text + "\r\n\r\n" +
-                        sharedServiceNames.Count + " services dans ce processus :\r\n" +
+                        sharedServiceNames.Count + " services in this process:\r\n" +
                         string.Join(", ", sharedServiceNames) + "\r\n" +
-                        "Toute modification d'affinité ou de priorité les affecte tous.";
+                        "Any affinity or priority change affects them all.";
                 }
 
                 this._toolTipTextBlock.Text = text;
