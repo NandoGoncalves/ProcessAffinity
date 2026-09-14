@@ -104,10 +104,26 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
-        /// Fond du bandeau de nom au repos. L'échantillon CPU le réécrit à chaque
-        /// seconde : sans cela le marquage serait effacé aussitôt posé.
+        /// Fond du bandeau de nom : jaune tant qu'il arrive quelque chose pour ce
+        /// processus, la couleur de repos sinon. C'est le clignotement que le
+        /// watcher produisait par ses évènements de modification ; il est repris
+        /// ici sur la consommation de temps processeur du dernier relevé.
+        /// La police suit, noire sur le jaune, via le calcul de luminance.
         /// </summary>
         private Brush GetProcessNameBackgroundBrush()
+        {
+            if (this._process != null && this._process.HasRecentActivity)
+            {
+                return Brushes.Yellow;
+            }
+
+            return GetRestingProcessNameBackgroundBrush();
+        }
+
+        /// <summary>
+        /// Couleur de repos, une fois le bandeau éteint.
+        /// </summary>
+        private Brush GetRestingProcessNameBackgroundBrush()
         {
             if (this._process != null && !this._process.IsModifiable)
             {

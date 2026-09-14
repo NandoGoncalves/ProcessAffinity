@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -21,6 +21,7 @@ namespace ProcessAffinityUI.Threading
         private long _lastCPUSampleTimestamp = 0;
         private long _lastTotalProcessorTime = 0;
         private long _lastCreateTime = 0;
+        private long _lastActivitySignature = 0;
 
         private bool? _isProcessorAffinityReadable = null;
         private bool? _isModifiable = null;
@@ -122,6 +123,14 @@ namespace ProcessAffinityUI.Threading
         // null tant qu'aucun delta n'a pu être calculé (premier échantillon,
         // ou processus dont le temps CPU est inaccessible).
         public double? CPUUsage { get { return this._cpuUsage; } }
+
+        /// <summary>
+        /// Vrai quand une grandeur du processus a changé depuis le relevé
+        /// précédent : cycles consommés, mémoire privée, poignées, threads, défauts
+        /// de page. C'est ce qui rallume le bandeau de nom ; il s'éteint au relevé
+        /// suivant si plus rien n'arrive.
+        /// </summary>
+        public bool HasRecentActivity { get; private set; }
         public string ExecutablePath { get { return this._executablePath; } }
         public ManagementScope Scope { get; set; }
         public int Priority
@@ -217,13 +226,18 @@ namespace ProcessAffinityUI.Threading
         /// produit aucune valeur : il ne fait qu'établir la référence.
         /// Les temps sont exprimés en unités de 100 ns.
         /// </summary>
-        internal void UpdateCPUUsage(long createTime, long totalProcessorTime, long timestamp)
+        internal void UpdateCPUUsage(long createTime, long totalProcessorTime, long timestamp, long activitySignature)
         {
             // Un PID réutilisé porte une date de création différente : on repart
             // d'une nouvelle référence au lieu de produire une valeur aberrante.
             if (this._hasCPUSample && createTime == this._lastCreateTime)
             {
                 long elapsedTicks = timestamp - this._lastCPUSampleTimestamp;
+
+                // Le watcher rallumait le bandeau de nom à chaque modification
+                // d'instance WMI. La signature du relevé joue le même rôle : elle
+                // change dès qu'une grandeur du processus a bougé.
+                this.HasRecentActivity = activitySignature != this._lastActivitySignature;
 
                 if (elapsedTicks > 0)
                 {
@@ -244,6 +258,7 @@ namespace ProcessAffinityUI.Threading
                 }
             }
 
+            this._lastActivitySignature = activitySignature;
             this._lastTotalProcessorTime = totalProcessorTime;
             this._lastCPUSampleTimestamp = timestamp;
             this._lastCreateTime = createTime;

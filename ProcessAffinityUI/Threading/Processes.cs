@@ -380,7 +380,8 @@ namespace ProcessAffinityUI.Threading
                 // donnerait un coût quadratique à chaque tick.
                 if (processTimesByProcessID.TryGetValue(process.ProcessID, out processTimes))
                 {
-                    process.UpdateCPUUsage(processTimes.CreateTime, processTimes.TotalProcessorTime, timestamp);
+                    process.UpdateCPUUsage(processTimes.CreateTime, processTimes.TotalProcessorTime, timestamp,
+                        processTimes.ActivitySignature);
                 }
             }
 
