@@ -69,7 +69,21 @@ namespace ProcessAffinityUI.Threading
             this.ComputerName = (this._targetInstance == TargetInstanceEnum.Win32_Process)?WmiObject["CSName"].ToString(): WmiObject["SystemName"].ToString();
             //this.Description = WmiObject["Description"].ToString(); // Fall for some services
 
-            // this._executablePath = (this._targetInstance == TargetInstanceEnum.Win32_Process) ? WmiObject["ExecutablePath"].ToString(): WmiObject["PathName"].ToString(); // Not yet initialize
+            // Le chemin vient du « SELECT * » déjà fait : aucune requête de plus.
+            // C'est lui qui donne son icône à la tuile. Il restait vide ici, et
+            // seul le watcher — dont les objets passaient par le constructeur
+            // WIN32_Process — en fournissait un, au fil des évènements de
+            // modification. Sans watcher, plus aucune tuile n'avait d'icône.
+            //
+            // Null sur les processus protégés, et absent des services : PathName
+            // y porte une ligne de commande, pas un chemin exploitable.
+            if (this._targetInstance == TargetInstanceEnum.Win32_Process)
+            {
+                object executablePath = WmiObject["ExecutablePath"];
+
+                this._executablePath = executablePath == null ? string.Empty : executablePath.ToString();
+            }
+
             this.Scope = scope;
 
 

@@ -164,15 +164,53 @@ namespace ProcessAffinityUI
             return luminance < 0.5d ? Brushes.White : Brushes.Black;
         }
 
+        /// <summary>
+        /// Icônes déjà extraites, par chemin d'exécutable. Un même binaire porte
+        /// souvent des dizaines de processus — vingt onglets de navigateur, autant
+        /// d'hôtes de services : sans ce cache, l'extraction était refaite pour
+        /// chacun, au prix d'environ une seconde au chargement. Les valeurs sont
+        /// gelées, donc partageables entre tuiles. Un chemin illisible est retenu
+        /// aussi, sous la forme d'un null, pour ne pas être retenté.
+        /// </summary>
+        private static readonly Dictionary<string, ImageSource> IconsByExecutablePath =
+            new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
+
         public void SetIcon(Process process)
         {
-            try
+            string executablePath = process.ExecutablePath;
+
+            // Vide sur les services et sur les processus dont le chemin n'est pas
+            // lisible sans élévation : la tuile reste sans icône.
+            if (string.IsNullOrEmpty(executablePath))
             {
-                this.ProcessImage.Source = ConvertToImageSource(System.Drawing.Icon.ExtractAssociatedIcon(process.ExecutablePath)); //new System.Windows.Media.ImageBrush(ConvertToImageSource(System.Drawing.Icon.ExtractAssociatedIcon(process.InnerProcess.MainModule.FileName)));
+                return;
             }
-            catch
+
+            ImageSource imageSource;
+
+            if (!IconsByExecutablePath.TryGetValue(executablePath, out imageSource))
             {
-                //this.ProcessImage.Visibility = System.Windows.Visibility.Hidden; 
+                try
+                {
+                    imageSource = ConvertToImageSource(System.Drawing.Icon.ExtractAssociatedIcon(executablePath)); //new System.Windows.Media.ImageBrush(ConvertToImageSource(System.Drawing.Icon.ExtractAssociatedIcon(process.InnerProcess.MainModule.FileName)));
+
+                    if (imageSource != null && imageSource.CanFreeze)
+                    {
+                        imageSource.Freeze();
+                    }
+                }
+                catch
+                {
+                    imageSource = null;
+                    //this.ProcessImage.Visibility = System.Windows.Visibility.Hidden;
+                }
+
+                IconsByExecutablePath[executablePath] = imageSource;
+            }
+
+            if (imageSource != null)
+            {
+                this.ProcessImage.Source = imageSource;
             }
         }
 
