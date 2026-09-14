@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -32,6 +32,14 @@ namespace ProcessAffinityUI
         private Processes _processes = null;
         private Processes _services = null;
 
+        /// <summary>
+        /// Vrai dès la fermeture demandée. Les opérations déjà postées sur le
+        /// dispatcher s'écartent d'elles-mêmes : elles s'exécutent après, quand
+        /// l'Application refuse déjà de charger la moindre ressource. Volatile,
+        /// la levée venant du thread de l'IHM et la lecture parfois d'un autre.
+        /// </summary>
+        private volatile bool _isShuttingDown = false;
+
         public MainWindow()
         {
                 InitializeComponent();
@@ -43,6 +51,13 @@ namespace ProcessAffinityUI
                 _processAffinityNotifyIcon.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(ProcessAffinityNotifyIconMouseDoubleClick);
 
                 this.StateChanged += new EventHandler(WindowStateChanged);
+
+                // Closing précède la fermeture de la fenêtre, donc l'arrêt de
+                // l'Application ; Closed, lui, survient quand celui-ci a déjà
+                // commencé. C'est ici qu'il faut couper les producteurs
+                // d'événements. Closed reste branché comme filet : StopBackgroundWork
+                // est idempotent.
+                this.Closing += new System.ComponentModel.CancelEventHandler(WindowClosing);
                 this.Closed += new EventHandler(WindowClosed);
 
                 AttachCounterToolTip(this.ProcessControlsCountLabel);
@@ -578,6 +593,11 @@ namespace ProcessAffinityUI
 
         private void Processes_ProcessEventArrived(object sender, ProcessEventArgs e)
         {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
 
             ProcessesEventArrivedDelegate processesEventArrivedDelegate = new ProcessesEventArrivedDelegate(SetCounters);
             this.processWrapPanel.Dispatcher.BeginInvoke(processesEventArrivedDelegate, new object[] { e.Process });
@@ -586,6 +606,11 @@ namespace ProcessAffinityUI
 
         private void Processes_ProcessCreated(object sender, ProcessEventArgs e)
         {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             //this.processWrapPanel.Dispatcher.BeginInvoke(new Action(() => this.processWrapPanel.Children.Add(new ProcessUserControl(process))), new object[] { });
 
             ProcessesEventArrivedDelegate processesCreatedDelegate = new ProcessesEventArrivedDelegate(CreateProcessUserControl);
@@ -595,6 +620,11 @@ namespace ProcessAffinityUI
 
         private void Processes_ProcessDeleted(object sender, ProcessEventArgs e)
         {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             ProcessesEventArrivedDelegate processesDeletedDelegate = new ProcessesEventArrivedDelegate(RemoveProcessUserControl);
             this.processWrapPanel.Dispatcher.BeginInvoke(processesDeletedDelegate, new object[] {e.Process});
 
@@ -602,12 +632,23 @@ namespace ProcessAffinityUI
 
         private void Processes_ProcessModified(object sender, ProcessEventArgs e)
         {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             ProcessesEventArrivedDelegate processesModifiedDelegate = new ProcessesEventArrivedDelegate(ModifyProcessUserControl);
             this.processWrapPanel.Dispatcher.BeginInvoke(processesModifiedDelegate, new object[] {e.Process});
         }
 
         private void SetCounters(Process process)
         {
+            // Operation postee avant la fermeture, executee apres.
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             SetCounters();
         }
 
@@ -657,6 +698,12 @@ namespace ProcessAffinityUI
 
         private void CreateProcessUserControl(Process process)
         {
+            // Operation postee avant la fermeture, executee apres.
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             if (process.ProcessID == 0)
             {
                 // Processes.InitalizeWatcher exception
@@ -688,6 +735,12 @@ namespace ProcessAffinityUI
 
         private void ModifyProcessUserControl(Process process)
         {
+            // Operation postee avant la fermeture, executee apres.
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             if (process.ToKill)
             {
                 process.Kill();
@@ -718,6 +771,12 @@ namespace ProcessAffinityUI
 
         private void RemoveProcessUserControl(Process process)
         {
+            // Operation postee avant la fermeture, executee apres.
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             //IEnumerable<ProcessUserControl> processUserControls = from child in this.processWrapPanel.Children.OfType<ProcessUserControl>()
             //                                                      where child.ProcessID == process.ProcessID
             //                                                      select child;
@@ -920,8 +979,27 @@ namespace ProcessAffinityUI
             return version == null ? string.Empty : version.ToString(3);
         }
 
+        private void WindowClosing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            this.StopBackgroundWork();
+        }
+
         private void WindowClosed(object sender, EventArgs e)
         {
+            this.StopBackgroundWork();
+        }
+
+        /// <summary>
+        /// Coupe les deux producteurs d'événements — échantillonnage du % CPU et
+        /// matérialisation — puis détache les gestionnaires, avant que
+        /// l'Application n'entre en fermeture. Sans cela une tuile pouvait encore
+        /// être créée pendant l'arrêt, et <c>Application.LoadComponent</c> lever
+        /// un « objet Application en cours de fermeture ». Idempotent.
+        /// </summary>
+        private void StopBackgroundWork()
+        {
+            this._isShuttingDown = true;
+
             if (this._processes != null)
             {
                 this._processes.StopCPUSampling();
@@ -931,6 +1009,11 @@ namespace ProcessAffinityUI
             {
                 this._services.StopCPUSampling();
             }
+
+            // Détacher après avoir arrêté : un événement déjà en vol n'atteint
+            // plus le dispatcher.
+            this.UnsubscribeProcessEventHandlers(this._processes);
+            this.UnsubscribeProcessEventHandlers(this._services);
         }
 
         private void ShowServicesCheckBox_CheckedChanged(object sender, RoutedEventArgs e)

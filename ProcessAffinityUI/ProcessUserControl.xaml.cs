@@ -180,6 +180,13 @@ namespace ProcessAffinityUI
 
         private void SetCPUUsageLabel(double? cpuUsage)
         {
+            // Une tuile pousse une trentaine d'opérations par seconde dans le
+            // dispatcher : aucune ne doit être postée une fois l'arrêt engagé.
+            if (this.Dispatcher.HasShutdownStarted || this.Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
             Task.Run(() => {
                 try
                 {
