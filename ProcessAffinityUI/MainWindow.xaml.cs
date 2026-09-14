@@ -70,20 +70,25 @@ namespace ProcessAffinityUI
            
             ProcessUserControl processUserControl = null;
 
-            for(int i = 0;i < processes.Count; i++) 
+            // Copie prise sous verrou : le diff retire des entrées depuis le
+            // thread d'échantillonnage, et indexer la liste d'origine pouvait
+            // sauter une tuile ou sortir des bornes en cours de construction.
+            Process[] entries = processes.Snapshot();
+
+            for(int i = 0;i < entries.Length; i++)
             {
                 try
                 {
 
-                    if (processes[i] != null)
+                    if (entries[i] != null)
                     {
-                        if (processes[i].IsService && this.ShowServicesCheckBox.IsChecked != true)
+                        if (entries[i].IsService && this.ShowServicesCheckBox.IsChecked != true)
                         {
                             continue;
                         }
 
-                        processUserControl = new ProcessUserControl(processes[i]);
-                        bool processUserControlExists = ProcessUserControlExists(processes[i]);
+                        processUserControl = new ProcessUserControl(entries[i]);
+                        bool processUserControlExists = ProcessUserControlExists(entries[i]);
 
                         if (processUserControlExists == false)
                         {
@@ -93,7 +98,7 @@ namespace ProcessAffinityUI
                         }
                         else
                         {
-                            GetProcessUserControl(processes[i]).SetProcess(processes[i]);
+                            GetProcessUserControl(entries[i]).SetProcess(entries[i]);
                         }
                     }
                 }
@@ -562,7 +567,9 @@ namespace ProcessAffinityUI
         {
             Task.Factory.StartNew(() => {
 
-                Parallel.ForEach(_processes, (process) => {
+                // Copie sous verrou : le diff mute désormais la liste depuis le
+                // thread d'échantillonnage, et énumérer l'original lèverait.
+                Parallel.ForEach(_processes.Snapshot(), (process) => {
                     process.IsAlive();
                 });
 
@@ -826,7 +833,7 @@ namespace ProcessAffinityUI
                 this._services = services;
 
                 // L'instance abandonnée garde sinon ses gestionnaires : son
-                // watcher continuerait d'alimenter le panneau à partir d'une
+                // diff continuerait d'alimenter le panneau à partir d'une
                 // liste périmée. Le réabonnement à la nouvelle instance a lieu
                 // dans InitializeProcessWrapPanel, plus bas.
                 UnsubscribeProcessEventHandlers(previousProcesses);
