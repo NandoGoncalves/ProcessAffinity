@@ -133,6 +133,39 @@ namespace ProcessAffinityUI.Threading
         public double? CPUUsage { get { return this._cpuUsage; } }
 
         /// <summary>
+        /// Sort de la règle enregistrée pour cet exécutable, ou None s'il n'y en a
+        /// pas. Écrit par le thread de matérialisation, lu par celui de l'IHM.
+        /// </summary>
+        public Configuration.RuleStateEnum RuleState { get; private set; }
+
+        /// <summary>Détail de l'échec, présenté dans l'infobulle. Null si tout va bien.</summary>
+        public string RuleDetail { get; private set; }
+
+        /// <summary>
+        /// Vrai le temps d'un relevé après l'application d'une règle, pour que la
+        /// tuile le signale.
+        /// </summary>
+        public bool HasRuleJustApplied { get; private set; }
+
+        internal void SetRuleState(Configuration.RuleStateEnum state, string detail)
+        {
+            this.HasRuleJustApplied = state != Configuration.RuleStateEnum.None
+                                      && this.RuleState != state;
+
+            this.RuleState = state;
+            this.RuleDetail = detail;
+        }
+
+        /// <summary>Consommé par la tuile : le signalement ne dure qu'un relevé.</summary>
+        internal bool ConsumeRuleJustApplied()
+        {
+            bool value = this.HasRuleJustApplied;
+            this.HasRuleJustApplied = false;
+
+            return value;
+        }
+
+        /// <summary>
         /// Vrai quand une grandeur du processus a changé depuis le relevé
         /// précédent : cycles consommés, mémoire privée, poignées, threads, défauts
         /// de page. C'est ce qui rallume le bandeau de nom ; il s'éteint au relevé

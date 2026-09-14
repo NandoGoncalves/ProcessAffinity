@@ -40,7 +40,13 @@
                     </InlineUIContainer>
                     <InlineUIContainer>
                         <Label Content="Evt:- New:- Del:- Mod:-" x:Name="EventsSubscritionsLabel" Padding="2,5,2,5" />
-                    </InlineUIContainer>                    
+                    </InlineUIContainer>
+                    <InlineUIContainer>
+                        <!-- Masqué tant qu'aucune règle n'est en échec : un compteur
+                             à zéro en permanence n'apprend rien et encombre. -->
+                        <Label Content="" x:Name="FailedRulesLabel" Padding="2,5,2,5"
+                               Foreground="#A5322A" FontWeight="Bold" Visibility="Collapsed" />
+                    </InlineUIContainer>
                 </TextBlock>
             </Border>
             <Border Width="50" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Left">

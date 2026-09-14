@@ -615,6 +615,11 @@ namespace ProcessAffinityUI.Threading
 
                 if (add)
                 {
+                    // Sur ce thread et pas sur celui d'échantillonnage : écrire
+                    // l'affinité et la priorité, puis les relire, prend le temps
+                    // qu'il faut sans retarder le tick du % CPU.
+                    ApplyRule(process);
+
                     this.AddCreatedProcess(process);
                 }
             }
@@ -662,6 +667,43 @@ namespace ProcessAffinityUI.Threading
             {
                 this.RaiseDeleted(service);
             }
+        }
+
+        /// <summary>
+        /// Applique la règle enregistrée pour ce processus, le cas échéant. Isolée
+        /// dans son try : un fichier de règles illisible ne doit pas empêcher la
+        /// tuile d'apparaître.
+        /// </summary>
+        private static void ApplyRule(Process process)
+        {
+            try
+            {
+                Configuration.RuleEngine.Apply(process);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
+        /// Applique les règles aux processus déjà en cours, au chargement initial.
+        /// Hors du thread de l'IHM : la relecture de chaque processus passe par des
+        /// appels système qui figeraient la fenêtre.
+        /// </summary>
+        public void ApplyRulesToExistingProcesses()
+        {
+            Task.Factory.StartNew(() =>
+            {
+                foreach (Process process in this.Snapshot())
+                {
+                    if (this._cpuSamplingCancellation.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    ApplyRule(process);
+                }
+            }, TaskCreationOptions.LongRunning);
         }
 
         private void AddCreatedProcess(Process process)

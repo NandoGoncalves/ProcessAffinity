@@ -12,6 +12,7 @@ using System.Windows.Shapes;
 using System.Threading.Tasks;
 
 using ProcessAffinityUI.Threading;
+using ProcessAffinityUI.Configuration;
 //using ProcessAffinityUI.Configuration;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -26,12 +27,28 @@ namespace ProcessAffinityUI
         /// <summary>Titre des boîtes de dialogue.</summary>
         private const string ApplicationName = "ProcessAffinity";
 
+        /// <summary>Entrees de menu des regles, utilisees a la construction et a l aiguillage.</summary>
+        private const string SaveConfigurationHeader = "Save configuration";
+        private const string RemoveConfigurationHeader = "Remove configuration";
+
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
 
         /// <summary>Fond du bandeau de nom des entrées non modifiables.</summary>
         private static readonly Brush NotModifiableNameBackgroundBrush =
             new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
+
+        /// <summary>
+        /// Fond du bandeau de nom d'une entrée sous règle appliquée. Même principe
+        /// que le gris : la couleur porte l'information, le reste de la tuile est
+        /// inchangé. La police passe en blanc par le calcul de luminance.
+        /// </summary>
+        private static readonly Brush RuledNameBackgroundBrush =
+            new SolidColorBrush(Color.FromRgb(0x1F, 0x5C, 0x99));
+
+        /// <summary>Fond du bandeau de nom d'une règle en échec.</summary>
+        private static readonly Brush FailedRuleNameBackgroundBrush =
+            new SolidColorBrush(Color.FromRgb(0xA5, 0x32, 0x2A));
 
         /// <summary>
         /// Durée d'affichage de l'infobulle. La valeur par défaut de WPF, 5 s, la
@@ -139,15 +156,35 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
-        /// Fond du bandeau de nom : jaune tant qu'il arrive quelque chose pour ce
-        /// processus, la couleur de repos sinon. C'est le clignotement que le
-        /// watcher produisait par ses évènements de modification ; il est repris
-        /// ici sur la consommation de temps processeur du dernier relevé.
-        /// La police suit, noire sur le jaune, via le calcul de luminance.
+        /// Fond du bandeau de nom.
+        ///
+        /// Le jaune garde son rôle de clignotement : il signale qu'il arrive
+        /// quelque chose pour ce processus, et il signale aussi l'instant où une
+        /// règle vient de lui être appliquée.
+        ///
+        /// Mais il ne recouvre pas le marquage d'une entrée sous règle : une tuile
+        /// sous règle doit rester identifiable d'un coup d'œil, or le clignotement
+        /// la repeindrait une seconde sur deux. Sur une tuile sous règle, le jaune
+        /// n'apparaît donc qu'au moment de l'application.
         /// </summary>
         private Brush GetProcessNameBackgroundBrush()
         {
-            if (this._process != null && this._process.HasRecentActivity)
+            if (this._process == null)
+            {
+                return Brushes.White;
+            }
+
+            if (this._process.ConsumeRuleJustApplied())
+            {
+                return Brushes.Yellow;
+            }
+
+            if (this._process.RuleState != RuleStateEnum.None)
+            {
+                return GetRestingProcessNameBackgroundBrush();
+            }
+
+            if (this._process.HasRecentActivity)
             {
                 return Brushes.Yellow;
             }
@@ -156,13 +193,30 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
-        /// Couleur de repos, une fois le bandeau éteint.
+        /// Couleur de repos, une fois le bandeau éteint. L'état de la règle prime
+        /// sur le marquage des entrées non modifiables : une règle refusée dit déjà
+        /// qu'il manque des droits, et le dit plus précisément.
         /// </summary>
         private Brush GetRestingProcessNameBackgroundBrush()
         {
-            if (this._process != null && !this._process.IsModifiable)
+            if (this._process != null)
             {
-                return NotModifiableNameBackgroundBrush;
+                switch (this._process.RuleState)
+                {
+                    case RuleStateEnum.Applied:
+                        return RuledNameBackgroundBrush;
+
+                    case RuleStateEnum.Contested:
+                    case RuleStateEnum.Denied:
+                    case RuleStateEnum.Orphan:
+                    case RuleStateEnum.InvalidMask:
+                        return FailedRuleNameBackgroundBrush;
+                }
+
+                if (!this._process.IsModifiable)
+                {
+                    return NotModifiableNameBackgroundBrush;
+                }
             }
 
             return Brushes.White;
@@ -412,6 +466,45 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
+        /// Bloc de l'infobulle consacré à la règle. Vide quand le processus n'en
+        /// porte pas.
+        /// </summary>
+        private string GetRuleToolTipText()
+        {
+            switch (this._process.RuleState)
+            {
+                case RuleStateEnum.None:
+                    return string.Empty;
+
+                case RuleStateEnum.Applied:
+                    return "\r\n\r\nSaved rule applied and confirmed.";
+
+                default:
+                    return "\r\n\r\nSaved rule — " + GetRuleStateText(this._process.RuleState) + "\r\n"
+                           + (this._process.RuleDetail ?? string.Empty);
+            }
+        }
+
+        private static string GetRuleStateText(RuleStateEnum state)
+        {
+            switch (state)
+            {
+                case RuleStateEnum.Applied:
+                    return "applied";
+                case RuleStateEnum.Contested:
+                    return "contested by Windows";
+                case RuleStateEnum.Denied:
+                    return "denied, elevation required";
+                case RuleStateEnum.Orphan:
+                    return "orphaned, executable missing";
+                case RuleStateEnum.InvalidMask:
+                    return "ignored, mask invalid on this machine";
+                default:
+                    return "none";
+            }
+        }
+
+        /// <summary>
         /// Nombre de cœurs autorisés sur le nombre de processeurs logiques, ou
         /// « unknown » : un masque illisible ne doit pas être compté comme nul.
         /// </summary>
@@ -533,6 +626,22 @@ namespace ProcessAffinityUI
                 menuItem = new MenuItem();
                 menuItem.Header = "Is alive ?";
                 ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+
+                menu.Items.Add(new Separator());
+
+                // Enregistrer n'a de sens que sur une entrée dont l'affinité est
+                // lisible et le chemin connu ; retirer, que sur une entrée qui
+                // porte déjà une règle.
+                if (RuleEngine.HasRule(this._process.ExecutablePath))
+                {
+                    menuItem = new MenuItem();
+                    menuItem.Header = RemoveConfigurationHeader;
+                    ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+                }
+
+                menuItem = new MenuItem();
+                menuItem.Header = SaveConfigurationHeader;
+                ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
             }
 
             this.ContextMenu = menu;
@@ -571,8 +680,73 @@ namespace ProcessAffinityUI
                     processAffinityWindow.ShowDialog();
                     RefreshEntriesSharingHost();
                     break;
+                case SaveConfigurationHeader:
+                    SaveConfiguration();
+                    break;
+                case RemoveConfigurationHeader:
+                    RemoveConfiguration();
+                    break;
             }
- 
+
+        }
+
+        /// <summary>
+        /// Enregistre l'affinité et la priorité courantes du processus comme règle.
+        /// C'est bien l'état courant qui est retenu : l'utilisateur règle la tuile
+        /// comme il l'entend, puis demande que cela devienne permanent.
+        /// </summary>
+        private void SaveConfiguration()
+        {
+            nuint? affinity = this._process.GetProcessorAffinity();
+
+            if (affinity == null)
+            {
+                MessageBox.Show(
+                    "The current affinity of \"" + this._process.ProcessName + "\" cannot be read, "
+                    + "so there is nothing to save.\r\n\r\n"
+                    + "Running ProcessAffinity as administrator usually makes it readable.",
+                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                return;
+            }
+
+            string error;
+
+            if (!RuleEngine.TrySave(this._process, affinity.Value,
+                    (int)Process.ToProcessPriorityEnum(this._process.Priority), out error))
+            {
+                MessageBox.Show(error, ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                return;
+            }
+
+            // Le processus porte désormais une règle, déjà satisfaite puisqu'elle
+            // reprend son état courant.
+            this._process.SetRuleState(RuleStateEnum.Applied, null);
+            this.SetModifiableMarker(this._process);
+
+            MessageBox.Show(
+                "Configuration saved for \"" + this._process.ProcessName + "\".\r\n\r\n"
+                + "It will be applied at every start, and when ProcessAffinity loads.\r\n\r\n"
+                + RuleEngine.FilePath,
+                ApplicationName, MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void RemoveConfiguration()
+        {
+            string error;
+
+            RuleEngine.TryRemove(this._process.ExecutablePath, out error);
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                MessageBox.Show(error, ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
+            // L'affinité et la priorité en cours ne sont pas touchées : retirer la
+            // règle cesse de la réappliquer, cela ne remet rien en arrière.
+            this._process.SetRuleState(RuleStateEnum.None, null);
+            this.SetModifiableMarker(this._process);
         }
 
         /// <summary>
@@ -747,6 +921,8 @@ namespace ProcessAffinityUI
                 {
                     text = text + "\r\nAffinity and priority cannot be changed without elevation.";
                 }
+
+                text = text + GetRuleToolTipText();
 
                 // Affinité et priorité s'appliquent au processus hôte : quand il
                 // en héberge plusieurs, toute modification les affecte tous.

@@ -269,6 +269,12 @@ namespace ProcessAffinityUI
                 try
                 {
                     this._process.SetProcessorAffinity(processorAffinity);
+
+                    // Une modification faite depuis l'application sur un processus
+                    // sous règle met la règle à jour : sans cela le prochain
+                    // lancement rétablirait l'ancienne valeur, et l'utilisateur
+                    // croirait son changement perdu.
+                    ProcessAffinityUI.Configuration.RuleEngine.UpdateIfRuled(this._process);
                 }
                 catch (Exception ex)
                 {
