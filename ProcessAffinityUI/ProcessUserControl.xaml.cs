@@ -471,18 +471,29 @@ namespace ProcessAffinityUI
         /// </summary>
         private string GetRuleToolTipText()
         {
-            switch (this._process.RuleState)
+            RuleStateEnum state = this._process.RuleState;
+
+            if (state == RuleStateEnum.None)
             {
-                case RuleStateEnum.None:
-                    return string.Empty;
-
-                case RuleStateEnum.Applied:
-                    return "\r\n\r\nSaved rule applied and confirmed.";
-
-                default:
-                    return "\r\n\r\nSaved rule — " + GetRuleStateText(this._process.RuleState) + "\r\n"
-                           + (this._process.RuleDetail ?? string.Empty);
+                return string.Empty;
             }
+
+            string text = state == RuleStateEnum.Applied
+                ? "\r\n\r\nSaved rule applied and confirmed."
+                : "\r\n\r\nSaved rule — " + GetRuleStateText(state) + "\r\n"
+                  + (this._process.RuleDetail ?? string.Empty);
+
+            // Le nombre de rétablissements dit ce que l'état seul ne dit pas :
+            // qu'un tiers touche à ce processus, et à quelle fréquence.
+            int enforcementCount = this._process.RuleEnforcementCount;
+
+            if (enforcementCount > 0)
+            {
+                text = text + "\r\nRestored " + enforcementCount
+                       + (enforcementCount > 1 ? " times" : " time") + " since ProcessAffinity started.";
+            }
+
+            return text;
         }
 
         private static string GetRuleStateText(RuleStateEnum state)
@@ -710,10 +721,16 @@ namespace ProcessAffinityUI
                 return;
             }
 
+            // Priorité lue en natif, comme le fait la mise à jour d'une règle
+            // existante : Win32_Process.Priority est figé à l'énumération, et
+            // enregistrer une priorité déjà modifiée par un tiers reviendrait à
+            // graver sa valeur d'origine, puis à la rétablir indéfiniment.
+            int priorityClass = this._process.GetPriorityClass()
+                                ?? (int)Process.ToProcessPriorityEnum(this._process.Priority);
+
             string error;
 
-            if (!RuleEngine.TrySave(this._process, affinity.Value,
-                    (int)Process.ToProcessPriorityEnum(this._process.Priority), out error))
+            if (!RuleEngine.TrySave(this._process, affinity.Value, priorityClass, out error))
             {
                 MessageBox.Show(error, ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
 

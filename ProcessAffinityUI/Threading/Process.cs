@@ -134,18 +134,40 @@ namespace ProcessAffinityUI.Threading
 
         /// <summary>
         /// Sort de la règle enregistrée pour cet exécutable, ou None s'il n'y en a
-        /// pas. Écrit par le thread de matérialisation, lu par celui de l'IHM.
+        /// pas.
+        ///
+        /// Cet état, son détail, le signalement et les compteurs sont écrits depuis
+        /// le thread de matérialisation et lus depuis celui de l'IHM. Ils sont donc
+        /// tous gardés par le même verrou : l'état et son détail doivent en outre
+        /// être vus ensemble, une infobulle ne devant jamais présenter le détail
+        /// d'un état qui n'est plus le sien.
         /// </summary>
-        public Configuration.RuleStateEnum RuleState { get; private set; }
+        public Configuration.RuleStateEnum RuleState
+        {
+            get { lock (this._ruleSyncRoot) { return this._ruleState; } }
+        }
 
         /// <summary>Détail de l'échec, présenté dans l'infobulle. Null si tout va bien.</summary>
-        public string RuleDetail { get; private set; }
+        public string RuleDetail
+        {
+            get { lock (this._ruleSyncRoot) { return this._ruleDetail; } }
+        }
 
         /// <summary>
-        /// Vrai le temps d'un relevé après l'application d'une règle, pour que la
-        /// tuile le signale.
+        /// Rétablissements de la règle depuis le lancement de l'application. Zéro
+        /// tant que personne n'y a touché.
         /// </summary>
-        public bool HasRuleJustApplied { get; private set; }
+        public int RuleEnforcementCount
+        {
+            get { lock (this._ruleSyncRoot) { return this._ruleEnforcementCount; } }
+        }
+
+        private readonly object _ruleSyncRoot = new object();
+        private Configuration.RuleStateEnum _ruleState = Configuration.RuleStateEnum.None;
+        private string _ruleDetail = null;
+        private bool _hasRuleJustApplied = false;
+        private int _ruleCorrectionCount = 0;
+        private int _ruleEnforcementCount = 0;
 
         /// <summary>
         /// Classe de priorité réellement en vigueur, ou null si elle n'est pas
@@ -162,24 +184,54 @@ namespace ProcessAffinityUI.Threading
         /// Corrections consécutives appliquées à ce processus. Remis à zéro dès
         /// qu'un contrôle le trouve conforme.
         /// </summary>
-        internal int RuleCorrectionCount { get; set; }
+        internal int RuleCorrectionCount
+        {
+            get { lock (this._ruleSyncRoot) { return this._ruleCorrectionCount; } }
+            set { lock (this._ruleSyncRoot) { this._ruleCorrectionCount = value; } }
+        }
 
         internal void SetRuleState(Configuration.RuleStateEnum state, string detail)
         {
-            this.HasRuleJustApplied = state != Configuration.RuleStateEnum.None
-                                      && this.RuleState != state;
+            lock (this._ruleSyncRoot)
+            {
+                this._hasRuleJustApplied = this._hasRuleJustApplied
+                                           || (state != Configuration.RuleStateEnum.None && this._ruleState != state);
 
-            this.RuleState = state;
-            this.RuleDetail = detail;
+                this._ruleState = state;
+                this._ruleDetail = detail;
+            }
         }
 
-        /// <summary>Consommé par la tuile : le signalement ne dure qu'un relevé.</summary>
+        /// <summary>
+        /// Signale un rétablissement de la règle. L'état ne change pas — la règle
+        /// reste appliquée — mais l'utilisateur doit le voir : sans cela, un
+        /// conflit survenu pendant que la fenêtre était réduite ne laisserait
+        /// aucune trace à l'écran.
+        /// </summary>
+        internal void NotifyRuleEnforced()
+        {
+            lock (this._ruleSyncRoot)
+            {
+                this._ruleEnforcementCount++;
+                this._hasRuleJustApplied = true;
+            }
+        }
+
+        /// <summary>
+        /// Consommé par la tuile : le signalement ne dure qu'un relevé. Test et
+        /// remise à zéro sous le même verrou, sans quoi deux lectures rapprochées
+        /// pourraient allumer deux fois — ou perdre un signalement posé entre les
+        /// deux.
+        /// </summary>
         internal bool ConsumeRuleJustApplied()
         {
-            bool value = this.HasRuleJustApplied;
-            this.HasRuleJustApplied = false;
+            lock (this._ruleSyncRoot)
+            {
+                bool value = this._hasRuleJustApplied;
+                this._hasRuleJustApplied = false;
 
-            return value;
+                return value;
+            }
         }
 
         /// <summary>

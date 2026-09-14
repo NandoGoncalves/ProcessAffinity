@@ -501,6 +501,12 @@ namespace ProcessAffinityUI.Configuration
             catch
             {
             }
+
+            // L'état ne change pas — la règle reste appliquée — donc rien ne
+            // rallumerait le bandeau de lui-même. Sans ce signalement, un conflit
+            // survenu pendant que la fenêtre était réduite ne laisserait aucune
+            // trace à l'écran au retour.
+            process.NotifyRuleEnforced();
         }
 
         private static void Abandon(Process process, ProcessRule rule, nuint wanted)
