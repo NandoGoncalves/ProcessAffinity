@@ -131,8 +131,7 @@ namespace ProcessAffinityUI
             }
 
             this.SelectAllButton.IsEnabled = false;
-            this.CloseButton.IsEnabled = false;
-            this.NotModifiableTextBlock.Text = "Affinité non modifiable sans élévation.";
+            this.NotModifiableTextBlock.Text = "Affinity cannot be changed without elevation.";
         }
 
         private void UpdateSelectionState()
@@ -142,8 +141,10 @@ namespace ProcessAffinityUI
             bool anyChecked = cpuCheckBoxes.Any(cb => cb.IsChecked == true);
             bool allChecked = cpuCheckBoxes.Count > 0 && cpuCheckBoxes.All(cb => cb.IsChecked == true);
 
-            this.CloseButton.IsEnabled = anyChecked && (this._process == null || this._process.IsModifiable);
-            this.SelectAllButton.Content = allChecked ? "Tout désélectionner" : "Tout sélectionner";
+            // Le bouton reste actif en toutes circonstances : il est aussi la
+            // sortie de la fenêtre. Le désactiver privait l'utilisateur de la
+            // sienne. Quand il n'y a rien à appliquer, il se contente de fermer.
+            this.SelectAllButton.Content = allChecked ? "Deselect all" : "Select all";
         }
 
         private void SelectAllButton_Click(object sender, RoutedEventArgs e)
@@ -240,11 +241,13 @@ namespace ProcessAffinityUI
             {
                 SetProcessorsAffinities();
             }
-            else
+            else if (this._process != null && this._process.IsModifiable)
             {
+                // Entrée non modifiable : on ferme sans tenter une écriture qui
+                // échouerait de toute façon. Un masque vide est déjà écarté par
+                // SetProcessorAffinity.
                 SetProcessorAffinity();
             }
-
 
             this.Close();
         }
@@ -298,7 +301,7 @@ namespace ProcessAffinityUI
                 appliedCount++;
             }
 
-            ReportPartialApplication("Affinité", appliedCount, notModifiableNames);
+            ReportPartialApplication("Affinity", appliedCount, notModifiableNames);
         }
 
         /// <summary>
@@ -316,20 +319,20 @@ namespace ProcessAffinityUI
 
             StringBuilder builder = new StringBuilder();
 
-            builder.Append(subject).Append(" appliquée à ").Append(appliedCount)
-                   .Append(appliedCount > 1 ? " entrées." : " entrée.").Append("\r\n\r\n");
+            builder.Append(subject).Append(" applied to ").Append(appliedCount)
+                   .Append(appliedCount > 1 ? " entries." : " entry.").Append("\r\n\r\n");
 
             builder.Append(notModifiableNames.Count)
                    .Append(notModifiableNames.Count > 1
-                       ? " entrées non modifiables sans élévation :"
-                       : " entrée non modifiable sans élévation :")
+                       ? " entries cannot be changed without elevation:"
+                       : " entry cannot be changed without elevation:")
                    .Append("\r\n");
 
             builder.Append(string.Join(", ", notModifiableNames.Take(maximumListed)));
 
             if (notModifiableNames.Count > maximumListed)
             {
-                builder.Append(", et ").Append(notModifiableNames.Count - maximumListed).Append(" autres");
+                builder.Append(", and ").Append(notModifiableNames.Count - maximumListed).Append(" more");
             }
 
             MessageBox.Show(builder.ToString(), "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Information);

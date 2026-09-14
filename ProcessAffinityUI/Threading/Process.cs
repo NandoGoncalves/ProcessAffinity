@@ -243,20 +243,85 @@ namespace ProcessAffinityUI.Threading
 
         public bool ToKill { get; set; }
 
-        public void Kill()
+        /// <summary>
+        /// Processus dont la terminaison provoque un écran bleu ou la fermeture
+        /// de la session. Le risque n'est plus théorique depuis que
+        /// SeDebugPrivilege est activé au démarrage : en session élevée,
+        /// Terminate aboutirait.
+        /// </summary>
+        private static readonly string[] CriticalProcessNames =
         {
-            ManagementObjectCollection managementObjectCollection = GetManagementObjectCollection();
+            "system", "idle", "secure system", "registry", "memory compression",
+            "smss", "csrss", "wininit", "winlogon", "services", "lsass", "lsaiso",
+        };
 
-            foreach (ManagementObject managementObject in managementObjectCollection)
+        public bool IsCriticalSystemProcess
+        {
+            get
             {
-                try
+                if (this.ProcessID <= 4)
                 {
-                    managementObject.InvokeMethod("Terminate", null);
+                    return true;
                 }
-                catch
+
+                string name = this.ProcessName ?? string.Empty;
+
+                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Le process peut ne plus exister
+                    name = name.Substring(0, name.Length - 4);
                 }
+
+                return CriticalProcessNames.Contains(name, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>
+        /// L'énumération WMI est paresseuse : elle interroge le service depuis le
+        /// foreach, hors du try interne. Une portée injoignable — quota WMI
+        /// saturé, connexion perdue — y levait une ManagementException qui
+        /// remontait jusqu'au dispatcher et fermait l'application sans un mot.
+        /// Retourne le code de Win32_Process.Terminate — 0 succès, 2 accès
+        /// refusé, 3 privilège insuffisant —, ou null quand la demande n'a pas
+        /// pu être transmise. Ce code était ignoré : un refus passait pour une
+        /// réussite.
+        /// </summary>
+        public uint? Kill()
+        {
+            try
+            {
+                ManagementObjectCollection managementObjectCollection = GetManagementObjectCollection();
+
+                uint? returnCode = null;
+                bool invoked = false;
+
+                foreach (ManagementObject managementObject in managementObjectCollection)
+                {
+                    invoked = true;
+
+                    try
+                    {
+                        object result = managementObject.InvokeMethod("Terminate", null);
+                        uint code = result == null ? 0u : Convert.ToUInt32(result);
+
+                        // On retient le premier échec rencontré.
+                        if (returnCode == null || returnCode == 0u)
+                        {
+                            returnCode = code;
+                        }
+                    }
+                    catch
+                    {
+                        return null;
+                    }
+                }
+
+                // Aucune instance : le processus a déjà disparu, c'est le
+                // résultat recherché.
+                return invoked ? returnCode : (uint?)0u;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -264,11 +329,18 @@ namespace ProcessAffinityUI.Threading
         {
             bool isAlive = false;
 
-            ManagementObjectCollection managementObjectCollection = GetManagementObjectCollection();
-
-            if (managementObjectCollection != null && managementObjectCollection.Count > 0)
+            try
             {
-                isAlive = true;
+                ManagementObjectCollection managementObjectCollection = GetManagementObjectCollection();
+
+                if (managementObjectCollection != null && managementObjectCollection.Count > 0)
+                {
+                    isAlive = true;
+                }
+            }
+            catch
+            {
+                // Même énumération paresseuse que dans Kill.
             }
 
             return isAlive;

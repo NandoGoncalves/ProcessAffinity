@@ -15,6 +15,78 @@ namespace ProcessAffinityUI
     public partial class App : Application
     {
         /// <summary>
+        /// Sans ces gestionnaires, une exception non interceptée fermait
+        /// l'application sans un mot : sur le thread de l'IHM, WPF termine le
+        /// processus faute de gestionnaire ; sur un autre thread, le CLR le
+        /// termine toujours.
+        /// </summary>
+        private void InstallGlobalExceptionHandlers()
+        {
+            this.DispatcherUnhandledException += (sender, e) =>
+            {
+                // Récupérable : on signale et on laisse l'application vivre.
+                ReportUnhandledException("An unexpected error occurred.", e.Exception);
+                e.Handled = true;
+            };
+
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                // Non récupérable, mais au moins l'utilisateur saura pourquoi.
+                ReportUnhandledException("A fatal error occurred, the application will close.", e.ExceptionObject as Exception);
+            };
+
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                // Observer sans rien dire est précisément ce qui avait masqué
+                // l'arrêt de l'échantillonneur à l'étape 2a.
+                System.Diagnostics.Debug.WriteLine("[ProcessAffinity] Exception de tâche non observée : " + e.Exception);
+                e.SetObserved();
+            };
+        }
+
+        /// <summary>
+        /// Signatures déjà signalées : l'échantillonnage pousse environ une mise
+        /// à jour par tuile et par seconde dans le dispatcher, donc une erreur
+        /// récurrente ouvrirait des centaines de boîtes de dialogue. Seule la
+        /// première occurrence d'une même erreur est montrée ; les suivantes ne
+        /// vont qu'à la trace.
+        /// </summary>
+        private static readonly HashSet<string> ReportedExceptionSignatures = new HashSet<string>();
+
+        private static readonly object ReportSyncRoot = new object();
+
+        private static void ReportUnhandledException(string header, Exception exception)
+        {
+            try
+            {
+                string detail = exception == null
+                    ? "Unknown error."
+                    : exception.GetType().Name + ": " + exception.Message;
+
+                System.Diagnostics.Debug.WriteLine("[ProcessAffinity] " + header + " " + detail);
+
+                bool alreadyReported;
+
+                lock (ReportSyncRoot)
+                {
+                    alreadyReported = !ReportedExceptionSignatures.Add(header + "|" + detail);
+                }
+
+                if (alreadyReported)
+                {
+                    return;
+                }
+
+                MessageBox.Show(header + "\r\n\r\n" + detail, "ProcessAffinity",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch
+            {
+                // Ne jamais laisser le rapport d'erreur provoquer une erreur.
+            }
+        }
+
+        /// <summary>
         /// SeDebugPrivilege figure dans le jeton d'une session élevée, mais
         /// désactivé — et OpenProcess ne tient compte que des privilèges activés.
         /// Sans cette activation, lancer l'application en administrateur ne
@@ -40,6 +112,7 @@ namespace ProcessAffinityUI
 
         private void Application_Startup(object sender, StartupEventArgs e)
         {
+            InstallGlobalExceptionHandlers();
             EnableDebugPrivilege();
 
             if (e.Args.Length > 0)
