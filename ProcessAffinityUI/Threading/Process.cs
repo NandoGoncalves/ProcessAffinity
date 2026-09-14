@@ -83,6 +83,14 @@ namespace ProcessAffinityUI.Threading
                 object executablePath = WmiObject["ExecutablePath"];
 
                 this._executablePath = executablePath == null ? string.Empty : executablePath.ToString();
+
+                // WMI rend un chemin vide pour les processus élevés. Le repli
+                // natif les rattrape, et avec eux leur icône — c'est à elle qu'on
+                // reconnaît une application dans un panneau de trois cents tuiles.
+                if (this._executablePath.Length == 0)
+                {
+                    this._executablePath = NativeProcessAccess.TryGetImagePath(this.ProcessID) ?? string.Empty;
+                }
             }
 
             this.Scope = scope;
