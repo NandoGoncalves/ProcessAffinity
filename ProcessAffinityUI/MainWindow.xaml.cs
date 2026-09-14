@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -32,6 +32,14 @@ namespace ProcessAffinityUI
         private Processes _processes = null;
         private Processes _services = null;
 
+        /// <summary>
+        /// Vrai dès la fermeture demandée. Les opérations déjà postées sur le
+        /// dispatcher s'écartent d'elles-mêmes : elles s'exécutent après, quand
+        /// l'Application refuse déjà de charger la moindre ressource. Volatile,
+        /// la levée venant du thread de l'IHM et la lecture parfois d'un autre.
+        /// </summary>
+        private volatile bool _isShuttingDown = false;
+
         public MainWindow()
         {
                 InitializeComponent();
@@ -43,6 +51,13 @@ namespace ProcessAffinityUI
                 _processAffinityNotifyIcon.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(ProcessAffinityNotifyIconMouseDoubleClick);
 
                 this.StateChanged += new EventHandler(WindowStateChanged);
+
+                // Closing précède la fermeture de la fenêtre, donc l'arrêt de
+                // l'Application ; Closed, lui, survient quand celui-ci a déjà
+                // commencé. C'est ici qu'il faut couper les producteurs
+                // d'événements. Closed reste branché comme filet : StopBackgroundWork
+                // est idempotent.
+                this.Closing += new System.ComponentModel.CancelEventHandler(WindowClosing);
                 this.Closed += new EventHandler(WindowClosed);
 
                 AttachCounterToolTip(this.ProcessControlsCountLabel);
@@ -52,15 +67,10 @@ namespace ProcessAffinityUI
 
         }
 
-        private void InitializeProcessWrapPanel()
-        {
-            if (this._processes == null)
-            {
-                this._processes = new Processes();
-            }
-
-            this.InitializeProcessWrapPanel(this._processes);
-        }
+        // La surcharge sans argument n'avait plus qu'un appelant, la restauration
+        // depuis la zone de notification, qui ne reconstruit plus le panneau.
+        // Elle créait au passage une instance Processes de secours que personne
+        // n'attendait.
 
         private void InitializeProcessWrapPanel(Processes processes)
         {
@@ -70,20 +80,25 @@ namespace ProcessAffinityUI
            
             ProcessUserControl processUserControl = null;
 
-            for(int i = 0;i < processes.Count; i++) 
+            // Copie prise sous verrou : le diff retire des entrées depuis le
+            // thread d'échantillonnage, et indexer la liste d'origine pouvait
+            // sauter une tuile ou sortir des bornes en cours de construction.
+            Process[] entries = processes.Snapshot();
+
+            for(int i = 0;i < entries.Length; i++)
             {
                 try
                 {
 
-                    if (processes[i] != null)
+                    if (entries[i] != null)
                     {
-                        if (processes[i].IsService && this.ShowServicesCheckBox.IsChecked != true)
+                        if (entries[i].IsService && this.ShowServicesCheckBox.IsChecked != true)
                         {
                             continue;
                         }
 
-                        processUserControl = new ProcessUserControl(processes[i]);
-                        bool processUserControlExists = ProcessUserControlExists(processes[i]);
+                        processUserControl = new ProcessUserControl(entries[i]);
+                        bool processUserControlExists = ProcessUserControlExists(entries[i]);
 
                         if (processUserControlExists == false)
                         {
@@ -93,7 +108,7 @@ namespace ProcessAffinityUI
                         }
                         else
                         {
-                            GetProcessUserControl(processes[i]).SetProcess(processes[i]);
+                            GetProcessUserControl(entries[i]).SetProcess(entries[i]);
                         }
                     }
                 }
@@ -562,7 +577,9 @@ namespace ProcessAffinityUI
         {
             Task.Factory.StartNew(() => {
 
-                Parallel.ForEach(_processes, (process) => {
+                // Copie sous verrou : le diff mute désormais la liste depuis le
+                // thread d'échantillonnage, et énumérer l'original lèverait.
+                Parallel.ForEach(_processes.Snapshot(), (process) => {
                     process.IsAlive();
                 });
 
@@ -571,6 +588,11 @@ namespace ProcessAffinityUI
 
         private void Processes_ProcessEventArrived(object sender, ProcessEventArgs e)
         {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
 
             ProcessesEventArrivedDelegate processesEventArrivedDelegate = new ProcessesEventArrivedDelegate(SetCounters);
             this.processWrapPanel.Dispatcher.BeginInvoke(processesEventArrivedDelegate, new object[] { e.Process });
@@ -579,6 +601,11 @@ namespace ProcessAffinityUI
 
         private void Processes_ProcessCreated(object sender, ProcessEventArgs e)
         {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             //this.processWrapPanel.Dispatcher.BeginInvoke(new Action(() => this.processWrapPanel.Children.Add(new ProcessUserControl(process))), new object[] { });
 
             ProcessesEventArrivedDelegate processesCreatedDelegate = new ProcessesEventArrivedDelegate(CreateProcessUserControl);
@@ -588,6 +615,11 @@ namespace ProcessAffinityUI
 
         private void Processes_ProcessDeleted(object sender, ProcessEventArgs e)
         {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             ProcessesEventArrivedDelegate processesDeletedDelegate = new ProcessesEventArrivedDelegate(RemoveProcessUserControl);
             this.processWrapPanel.Dispatcher.BeginInvoke(processesDeletedDelegate, new object[] {e.Process});
 
@@ -595,12 +627,23 @@ namespace ProcessAffinityUI
 
         private void Processes_ProcessModified(object sender, ProcessEventArgs e)
         {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             ProcessesEventArrivedDelegate processesModifiedDelegate = new ProcessesEventArrivedDelegate(ModifyProcessUserControl);
             this.processWrapPanel.Dispatcher.BeginInvoke(processesModifiedDelegate, new object[] {e.Process});
         }
 
         private void SetCounters(Process process)
         {
+            // Operation postee avant la fermeture, executee apres.
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             SetCounters();
         }
 
@@ -650,6 +693,12 @@ namespace ProcessAffinityUI
 
         private void CreateProcessUserControl(Process process)
         {
+            // Operation postee avant la fermeture, executee apres.
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             if (process.ProcessID == 0)
             {
                 // Processes.InitalizeWatcher exception
@@ -674,13 +723,64 @@ namespace ProcessAffinityUI
 
                 //if (processUserControls != null && processUserControls.Count() == 0)
                 //{
-                    this.processWrapPanel.Children.Add(new ProcessUserControl(process));
+                    InsertProcessUserControl(new ProcessUserControl(process), process);
                 //}
             }
         }
 
+        /// <summary>
+        /// Insère la tuile à sa place alphabétique, dans son bloc — les processus
+        /// d'abord, les services ensuite, comme au chargement. Elle était ajoutée
+        /// en fin de panneau : une application lancée après le chargement se
+        /// retrouvait à plusieurs centaines de positions de l'endroit où on la
+        /// cherche, et passait pour absente.
+        /// </summary>
+        private void InsertProcessUserControl(ProcessUserControl processUserControl, Process process)
+        {
+            int index = this.processWrapPanel.Children.Count;
+            bool blockEntered = false;
+
+            for (int i = 0; i < this.processWrapPanel.Children.Count; i++)
+            {
+                ProcessUserControl current = this.processWrapPanel.Children[i] as ProcessUserControl;
+
+                if (current == null || current.Process == null)
+                {
+                    continue;
+                }
+
+                if (current.Process.IsService != process.IsService)
+                {
+                    // Sortie du bloc : la tuile se place juste avant ce qui suit.
+                    if (blockEntered)
+                    {
+                        index = i;
+                        break;
+                    }
+
+                    continue;
+                }
+
+                blockEntered = true;
+
+                if (string.Compare(current.Process.ProcessName, process.ProcessName) > 0)
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            this.processWrapPanel.Children.Insert(index, processUserControl);
+        }
+
         private void ModifyProcessUserControl(Process process)
         {
+            // Operation postee avant la fermeture, executee apres.
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             if (process.ToKill)
             {
                 process.Kill();
@@ -711,6 +811,12 @@ namespace ProcessAffinityUI
 
         private void RemoveProcessUserControl(Process process)
         {
+            // Operation postee avant la fermeture, executee apres.
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             //IEnumerable<ProcessUserControl> processUserControls = from child in this.processWrapPanel.Children.OfType<ProcessUserControl>()
             //                                                      where child.ProcessID == process.ProcessID
             //                                                      select child;
@@ -826,7 +932,7 @@ namespace ProcessAffinityUI
                 this._services = services;
 
                 // L'instance abandonnée garde sinon ses gestionnaires : son
-                // watcher continuerait d'alimenter le panneau à partir d'une
+                // diff continuerait d'alimenter le panneau à partir d'une
                 // liste périmée. Le réabonnement à la nouvelle instance a lieu
                 // dans InitializeProcessWrapPanel, plus bas.
                 UnsubscribeProcessEventHandlers(previousProcesses);
@@ -913,8 +1019,27 @@ namespace ProcessAffinityUI
             return version == null ? string.Empty : version.ToString(3);
         }
 
+        private void WindowClosing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            this.StopBackgroundWork();
+        }
+
         private void WindowClosed(object sender, EventArgs e)
         {
+            this.StopBackgroundWork();
+        }
+
+        /// <summary>
+        /// Coupe les deux producteurs d'événements — échantillonnage du % CPU et
+        /// matérialisation — puis détache les gestionnaires, avant que
+        /// l'Application n'entre en fermeture. Sans cela une tuile pouvait encore
+        /// être créée pendant l'arrêt, et <c>Application.LoadComponent</c> lever
+        /// un « objet Application en cours de fermeture ». Idempotent.
+        /// </summary>
+        private void StopBackgroundWork()
+        {
+            this._isShuttingDown = true;
+
             if (this._processes != null)
             {
                 this._processes.StopCPUSampling();
@@ -924,6 +1049,11 @@ namespace ProcessAffinityUI
             {
                 this._services.StopCPUSampling();
             }
+
+            // Détacher après avoir arrêté : un événement déjà en vol n'atteint
+            // plus le dispatcher.
+            this.UnsubscribeProcessEventHandlers(this._processes);
+            this.UnsubscribeProcessEventHandlers(this._services);
         }
 
         private void ShowServicesCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
@@ -932,6 +1062,21 @@ namespace ProcessAffinityUI
             {
                 this.InitializeProcessWrapPanel(this._processes);
             }
+        }
+
+        /// <summary>
+        /// Réécrit chaque tuile depuis son historique en mémoire, celui-ci ayant
+        /// continué de glisser pendant la réduction. La courbe est donc continue
+        /// au retour : elle couvre la période masquée.
+        /// </summary>
+        private void RefreshProcessUserControlsDisplay()
+        {
+            foreach (ProcessUserControl processUserControl in this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                processUserControl.RefreshDisplay();
+            }
+
+            SetCounters();
         }
 
         private void ProcessAffinityNotifyIconMouseDoubleClick(object sender, System.Windows.Forms.MouseEventArgs e)
@@ -943,21 +1088,41 @@ namespace ProcessAffinityUI
         {
             if (this.WindowState == WindowState.Minimized)
             {
-                this.ClearProcessWrapPanel();
+                // Seul l'affichage s'arrête. Le suivi continue à l'identique :
+                // liste, créations, suppressions, échantillonnage et balayage des
+                // services.
+                //
+                // Le panneau n'est plus vidé. Le vider ne libérait rien — les
+                // délégués de notification maintenaient les tuiles en vie, et
+                // elles continuaient de poster onze mille opérations par seconde
+                // hors de l'arbre visuel — et sa reconstruction coûtait près de
+                // cinq secondes au retour.
+                ProcessUserControl.IsDisplaySuspended = true;
 
                 this.ShowInTaskbar = false;
                 _processAffinityNotifyIcon.BalloonTipTitle = "ProcessAffinity minimized Sucessfully";
                 _processAffinityNotifyIcon.BalloonTipText = "ProcessAffinity";
                 _processAffinityNotifyIcon.ShowBalloonTip(400);
                 _processAffinityNotifyIcon.Visible = true;
-            }
-            else if (this.WindowState == WindowState.Normal)
-            {
-                _processAffinityNotifyIcon.Visible = false;
-                this.ShowInTaskbar = true;
 
-                this.InitializeProcessWrapPanel();
+                return;
             }
+
+            // Toute sortie de la réduction relance l'affichage, agrandie comme
+            // normale. Ne traiter que Normal laissait les tuiles figées au retour
+            // d'une fenêtre agrandie — et une fenêtre agrandie avant la réduction
+            // revient agrandie.
+            ProcessUserControl.IsDisplaySuspended = false;
+
+            _processAffinityNotifyIcon.Visible = false;
+            this.ShowInTaskbar = true;
+
+            // Remise à niveau directe, sur le thread de l'IHM où l'on se
+            // trouve déjà : aucune opération n'est poussée, donc aucune
+            // rafale. Les tuiles sont restées en place et le panneau a suivi
+            // les créations et les suppressions pendant la réduction — il n'y
+            // a ni reconstruction, ni décalage à rattraper.
+            this.RefreshProcessUserControlsDisplay();
         }
 
         

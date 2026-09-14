@@ -86,7 +86,8 @@ namespace ProcessAffinityUI.Threading
 
                 processTimesByProcessID[processID] = new ProcessTimes(
                     information.CreateTime,
-                    information.KernelTime + information.UserTime);
+                    information.KernelTime + information.UserTime,
+                    GetActivitySignature(information));
 
                 if (information.NextEntryOffset == 0)
                 {
@@ -100,15 +101,45 @@ namespace ProcessAffinityUI.Threading
         }
 
         /// <summary>
+        /// Résume l'état du processus en un seul nombre : il change dès que
+        /// l'une de ces grandeurs bouge. C'est l'équivalent du
+        /// __InstanceModificationEvent de WMI, qui partait à la moindre variation
+        /// de propriété — sauf qu'ici tout est déjà dans le tampon relevé.
+        /// CycleTime en est délibérément absent : il compte les cycles au plus
+        /// près, si bien que presque tout processus bouge à chaque seconde — deux
+        /// tuiles sur trois restaient allumées en permanence, ce qui n'est plus un
+        /// clignotement. Les compteurs retenus ne bougent que sur un processus qui
+        /// travaille réellement.
+        /// </summary>
+        private static long GetActivitySignature(SYSTEM_PROCESS_INFORMATION information)
+        {
+            unchecked
+            {
+                long signature = information.KernelTime + information.UserTime;
+
+                signature = (signature * 31) + information.WorkingSetPrivateSize;
+                signature = (signature * 31) + information.HandleCount;
+                signature = (signature * 31) + information.NumberOfThreads;
+                signature = (signature * 31) + information.HardFaultCount;
+
+                return signature;
+            }
+        }
+
+        /// <summary>
         /// Compteurs d'un processus, en unités de 100 ns.
         /// </summary>
         public readonly struct ProcessTimes
         {
-            public ProcessTimes(long createTime, long totalProcessorTime)
+            public ProcessTimes(long createTime, long totalProcessorTime, long activitySignature)
             {
                 this.CreateTime = createTime;
                 this.TotalProcessorTime = totalProcessorTime;
+                this.ActivitySignature = activitySignature;
             }
+
+            /// <summary>État résumé : toute variation vaut « il s'est passé quelque chose ».</summary>
+            public long ActivitySignature { get; }
 
             /// <summary>Date de création : identifie un PID réutilisé.</summary>
             public long CreateTime { get; }
