@@ -220,14 +220,10 @@ namespace ProcessAffinityUI
                 {
                     Processes processes = new Processes(computerName, domain, user, password);
 
-                    List<ProcessUserControl> processUserControls = new List<ProcessUserControl>();
-
-                    foreach (var p in processes)
-                    {
-                        processUserControls.Add(new ProcessUserControl(p));
-                    }
-
-                    ProcessAffinityWindow paw = new ProcessAffinityWindow(processUserControls);
+                    // Les fenêtres travaillent désormais sur les entrées et non
+                    // sur les tuiles : le pilotage en ligne de commande n'a plus
+                    // à construire de contrôles qu'il n'affiche jamais.
+                    ProcessAffinityWindow paw = new ProcessAffinityWindow(processes.Snapshot().ToList());
 
                     if (core > -1)
                     {

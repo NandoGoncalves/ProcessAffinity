@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -20,7 +20,7 @@ namespace ProcessAffinityUI
     public partial class ProcessAffinityWindow : Window
     {
         private Process _process = null;
-        private List<ProcessUserControl> _processes = null;
+        private List<Process> _processes = null;
 
         public ProcessAffinityWindow()
         {
@@ -33,7 +33,7 @@ namespace ProcessAffinityUI
             SetProcess(process);
         }
 
-        public ProcessAffinityWindow(List<ProcessUserControl> processes)
+        public ProcessAffinityWindow(List<Process> processes)
         {
             InitializeComponent();
             SetProcesses(processes);
@@ -47,10 +47,52 @@ namespace ProcessAffinityUI
             return this;
         }
 
-        public void SetProcesses(List<ProcessUserControl> processes)
+        public void SetProcesses(List<Process> processes)
         {
             this._processes = processes;
             InitializeProcessAffinityWrapPanel();
+        }
+
+        /// <summary>
+        /// Masque à refléter dans les cases, ou null quand il n'y en a pas un
+        /// seul à montrer — toutes les cases sont alors proposées cochées.
+        ///
+        /// Le bouton « Close » applique : partir de « tout coché » pour une seule
+        /// entrée revenait à lui rendre tous les cœurs au simple fait d'ouvrir
+        /// puis de refermer la fenêtre.
+        /// </summary>
+        private nuint? GetDisplayedAffinity()
+        {
+            if (this._process != null)
+            {
+                return this._process.GetProcessorAffinity();
+            }
+
+            if (this._processes == null || this._processes.Count == 0)
+            {
+                return null;
+            }
+
+            nuint? common = this._processes[0].GetProcessorAffinity();
+
+            if (common == null)
+            {
+                return null;
+            }
+
+            // Plusieurs entrées : on ne reflète un masque que si elles le
+            // partagent toutes. Sinon il n'y a rien de fidèle à montrer.
+            for (int i = 1; i < this._processes.Count; i++)
+            {
+                nuint? affinity = this._processes[i].GetProcessorAffinity();
+
+                if (affinity == null || affinity.Value != common.Value)
+                {
+                    return null;
+                }
+            }
+
+            return common;
         }
 
         private void InitializeProcessAffinityWrapPanel()
@@ -59,11 +101,7 @@ namespace ProcessAffinityUI
             {
                 ProcessAffinityUI.Threading.Processes processes = new Threading.Processes();
 
-                // Affinité illisible, ou sélection multiple : on ne peut refléter
-                // aucun masque courant, toutes les cases sont proposées cochées.
-                nuint? processorAffinity = this._process == null
-                    ? null
-                    : this._process.GetProcessorAffinity();
+                nuint? processorAffinity = GetDisplayedAffinity();
 
                 string processorsAffinities = ToBinary(
                     (ulong)(processorAffinity ?? 0),
@@ -291,10 +329,19 @@ namespace ProcessAffinityUI
         {
             int appliedCount = 0;
             List<string> notModifiableNames = new List<string>();
+            List<string> goneNames = new List<string>();
 
             for (int i = 0; i < _processes.Count; i++)
             {
-                Process process = _processes[i].Process;
+                Process process = _processes[i];
+
+                // Terminé depuis l'ouverture de la fenêtre : l'écriture serait
+                // avalée sans bruit et compterait pour une réussite.
+                if (!process.IsRunning)
+                {
+                    goneNames.Add(process.ProcessName);
+                    continue;
+                }
 
                 if (!process.IsModifiable)
                 {
@@ -307,7 +354,7 @@ namespace ProcessAffinityUI
                 appliedCount++;
             }
 
-            ReportPartialApplication("Affinity", appliedCount, notModifiableNames);
+            ReportPartialApplication("Affinity", appliedCount, notModifiableNames, goneNames);
         }
 
         /// <summary>
@@ -316,32 +363,55 @@ namespace ProcessAffinityUI
         /// </summary>
         internal static void ReportPartialApplication(string subject, int appliedCount, List<string> notModifiableNames)
         {
-            if (notModifiableNames.Count == 0)
+            ReportPartialApplication(subject, appliedCount, notModifiableNames, new List<string>());
+        }
+
+        internal static void ReportPartialApplication(
+            string subject, int appliedCount, List<string> notModifiableNames, List<string> goneNames)
+        {
+            if (notModifiableNames.Count == 0 && goneNames.Count == 0)
+            {
+                return;
+            }
+
+            StringBuilder builder = new StringBuilder();
+
+            builder.Append(subject).Append(" applied to ").Append(appliedCount)
+                   .Append(appliedCount == 1 ? " entry." : " entries.").Append("\r\n");
+
+            AppendNames(builder, notModifiableNames,
+                " cannot be changed without elevation:",
+                " cannot be changed without elevation:");
+
+            AppendNames(builder, goneNames,
+                " is no longer running:",
+                " are no longer running:");
+
+            MessageBox.Show(builder.ToString(), "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private static void AppendNames(StringBuilder builder, List<string> names, string singular, string plural)
+        {
+            if (names == null || names.Count == 0)
             {
                 return;
             }
 
             const int maximumListed = 15;
 
-            StringBuilder builder = new StringBuilder();
-
-            builder.Append(subject).Append(" applied to ").Append(appliedCount)
-                   .Append(appliedCount > 1 ? " entries." : " entry.").Append("\r\n\r\n");
-
-            builder.Append(notModifiableNames.Count)
-                   .Append(notModifiableNames.Count > 1
-                       ? " entries cannot be changed without elevation:"
-                       : " entry cannot be changed without elevation:")
+            builder.Append("\r\n").Append(names.Count)
+                   .Append(names.Count == 1 ? " entry" : " entries")
+                   .Append(names.Count == 1 ? singular : plural)
                    .Append("\r\n");
 
-            builder.Append(string.Join(", ", notModifiableNames.Take(maximumListed)));
+            builder.Append(string.Join(", ", names.Take(maximumListed)));
 
-            if (notModifiableNames.Count > maximumListed)
+            if (names.Count > maximumListed)
             {
-                builder.Append(", and ").Append(notModifiableNames.Count - maximumListed).Append(" more");
+                builder.Append(", and ").Append(names.Count - maximumListed).Append(" more");
             }
 
-            MessageBox.Show(builder.ToString(), "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Information);
+            builder.Append("\r\n");
         }
 
     }

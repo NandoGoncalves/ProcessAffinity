@@ -69,6 +69,20 @@ namespace ProcessAffinityUI
 
                 processWrapPanel.MouseRightButtonDown += ProcessWrapPanel_MouseRightButtonDown;
 
+                // Un clic dans le vide vide la sélection. Le ScrollViewer reçoit
+                // aussi l'abonnement : quand les tuiles ne remplissent pas la
+                // hauteur visible, la zone sous la dernière lui appartient et non
+                // au panneau.
+                processWrapPanel.MouseLeftButtonDown += ProcessWrapPanel_MouseLeftButtonDown;
+                processScrollViewer.MouseLeftButtonDown += ProcessWrapPanel_MouseLeftButtonDown;
+
+                // La tuile raisonne sur la sélection entière sans connaître la
+                // fenêtre : on lui fournit la source et le geste de vidage.
+                ProcessUserControl.SelectionSource = () =>
+                    this._processes == null ? new Process[0] : this._processes.Snapshot();
+
+                ProcessUserControl.ClearSelectionRequested = this.ClearSelection;
+                ProcessUserControl.SelectionChanged = this.SetSelectedCounter;
         }
 
         // La surcharge sans argument n'avait plus qu'un appelant, la restauration
@@ -522,23 +536,23 @@ namespace ProcessAffinityUI
             switch (((MenuItem)e.OriginalSource).Header.ToString())
             {
                 case "Affinity all processes":
-                    ProcessAffinityWindow processAffinityWindow = new ProcessAffinityWindow(this.processWrapPanel.Children.Cast<ProcessUserControl>().ToList());
+                    ProcessAffinityWindow processAffinityWindow = new ProcessAffinityWindow(GetPanelProcesses());
                     processAffinityWindow.ShowDialog();
                     RefreshProcessUserControls();
                     break;
                 case "Priority all processes":
-                    ProcessPriorityWindow processPriorityWindow = new ProcessPriorityWindow(this.processWrapPanel.Children.Cast<ProcessUserControl>().ToList());
+                    ProcessPriorityWindow processPriorityWindow = new ProcessPriorityWindow(GetPanelProcesses());
                     processPriorityWindow.ShowDialog();
                     RefreshProcessUserControls();
                     break;
                 case "Priority selected processes":
-                    ProcessPriorityWindow selectedProcessPriorityWindow = new ProcessPriorityWindow(this.processWrapPanel.Children.Cast<ProcessUserControl>().Where(puc => puc.IsSelected == true).ToList());
+                    ProcessPriorityWindow selectedProcessPriorityWindow = new ProcessPriorityWindow(ProcessUserControl.GetSelectedProcesses());
                     selectedProcessPriorityWindow.ShowDialog();
                     RefreshProcessUserControls();
                     break;
 
                 case "Affinity selected processes":
-                    ProcessAffinityWindow selectedProcessAffinityWindow = new ProcessAffinityWindow(this.processWrapPanel.Children.Cast<ProcessUserControl>().Where(puc => puc.IsSelected == true).ToList());
+                    ProcessAffinityWindow selectedProcessAffinityWindow = new ProcessAffinityWindow(ProcessUserControl.GetSelectedProcesses());
                     selectedProcessAffinityWindow.ShowDialog();
                     RefreshProcessUserControls();
                     break;
@@ -555,6 +569,129 @@ namespace ProcessAffinityUI
             }
         }
 
+        /// <summary>
+        /// Entrées effectivement portées par le panneau, services exclus : ce sont
+        /// elles que visent les actions « all processes », et non toute la liste.
+        /// </summary>
+        private List<Process> GetPanelProcesses()
+        {
+            List<Process> entries = new List<Process>();
+
+            foreach (ProcessUserControl processUserControl in this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                if (processUserControl.Process != null && !processUserControl.Process.IsService)
+                {
+                    entries.Add(processUserControl.Process);
+                }
+            }
+
+            return entries;
+        }
+
+        /// <summary>
+        /// Clic gauche dans le panneau. Un clic sur une tuile remonte jusqu'ici en
+        /// bouillonnant : on ne vide la sélection que si la source d'origine
+        /// n'appartient à aucune tuile, c'est-à-dire si le clic a porté dans le
+        /// vide.
+        /// </summary>
+        private void ProcessWrapPanel_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (FindTile(e.OriginalSource as DependencyObject) != null)
+            {
+                return;
+            }
+
+            ClearSelection();
+        }
+
+        /// <summary>
+        /// Remonte l'arbre visuel à la recherche de la tuile qui contient
+        /// l'élément cliqué, ou null s'il n'y en a pas.
+        /// </summary>
+        private static ProcessUserControl FindTile(DependencyObject element)
+        {
+            while (element != null)
+            {
+                ProcessUserControl tile = element as ProcessUserControl;
+
+                if (tile != null)
+                {
+                    return tile;
+                }
+
+                // GetParent de l'arbre visuel lève sur ce qui n'est pas un Visual
+                // — un Run de texte, par exemple : on repasse alors par l'arbre
+                // logique.
+                element = element is System.Windows.Media.Visual
+                    ? System.Windows.Media.VisualTreeHelper.GetParent(element)
+                    : LogicalTreeHelper.GetParent(element);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Reporte la sélection d'un jeu d'entrées sur le suivant. L'identité est
+        /// celle d'IsSameEntry : le PID seul confondrait un service avec son hôte,
+        /// et un PID recyclé avec le processus qu'il remplace.
+        /// </summary>
+        private static void CarrySelectionOver(Processes previous, Processes current)
+        {
+            if (previous == null || current == null)
+            {
+                return;
+            }
+
+            List<Process> selected = new List<Process>();
+
+            foreach (Process process in previous.Snapshot())
+            {
+                if (process.IsSelected)
+                {
+                    selected.Add(process);
+                }
+            }
+
+            if (selected.Count == 0)
+            {
+                return;
+            }
+
+            foreach (Process process in current.Snapshot())
+            {
+                foreach (Process previouslySelected in selected)
+                {
+                    if (process.IsSameEntry(previouslySelected))
+                    {
+                        process.IsSelected = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Décoche tout et rafraîchit les tuiles. Appelée depuis le menu du
+        /// panneau comme depuis celui d'une tuile.
+        /// </summary>
+        private void ClearSelection()
+        {
+            if (this._processes != null)
+            {
+                foreach (Process process in this._processes.Snapshot())
+                {
+                    process.IsSelected = false;
+                }
+            }
+
+            foreach (ProcessUserControl processUserControl in this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                processUserControl.IsSelected = false;
+            }
+
+            SetCounters();
+        }
+
         private void SelectProcesses()
         {
             IEnumerable<ProcessUserControl> processUserControls = from child in this.processWrapPanel.Children.OfType<ProcessUserControl>()
@@ -564,17 +701,15 @@ namespace ProcessAffinityUI
             {
                 processUserControl.IsSelected = true;
             }
+
+            SetCounters();
         }
 
         private void UnselectProcesses()
         {
-            IEnumerable<ProcessUserControl> processUserControls = from child in this.processWrapPanel.Children.OfType<ProcessUserControl>()
-                                                                  select child;
-
-            foreach (ProcessUserControl processUserControl in processUserControls)
-            {
-                processUserControl.IsSelected = false;
-            }
+            // Une seule implémentation : ClearSelection décoche aussi les entrées
+            // qui n'ont pas de tuile au moment du geste.
+            ClearSelection();
         }
 
         private void IsAliveProcesses()
@@ -661,7 +796,29 @@ namespace ProcessAffinityUI
             this.ProcessControlsCountLabel.Content = "Displayed: " + GetVisibleProcessUserControlCount().ToString();
             this.ProcessesCountLabel.Content = "Total: " + (this._processes == null ? 0 : this._processes.Count).ToString();
 
+            SetSelectedCounter();
             SetFailedRulesCounter();
+        }
+
+        /// <summary>
+        /// Nombre de tuiles cochées, affiché seulement s'il y en a. Les actions du
+        /// menu contextuel portant sur la sélection dès qu'elle n'est pas vide,
+        /// l'utilisateur doit pouvoir le constater sans parcourir le panneau.
+        /// </summary>
+        private void SetSelectedCounter()
+        {
+            int selectedCount = ProcessUserControl.GetSelectedProcesses().Count;
+
+            if (selectedCount == 0)
+            {
+                this.SelectedCountLabel.Visibility = Visibility.Collapsed;
+                this.SelectedCountLabel.Content = string.Empty;
+
+                return;
+            }
+
+            this.SelectedCountLabel.Visibility = Visibility.Visible;
+            this.SelectedCountLabel.Content = "Selected: " + selectedCount.ToString();
         }
 
         /// <summary>
@@ -1002,6 +1159,11 @@ namespace ProcessAffinityUI
                 ResolveServiceHosts(processes, services);
 
                 processes.AddProcesses(services);
+
+                // Un rechargement construit de nouvelles entrées : la sélection,
+                // portée par les anciennes, serait perdue. On la reporte sur les
+                // entrées équivalentes — même type, même PID, même nom.
+                CarrySelectionOver(this._processes, processes);
 
                 // Les objets Process des services sont désormais dans la liste
                 // fusionnée : son échantillonneur les couvre. Celui de l'instance

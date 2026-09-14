@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -21,19 +21,17 @@ namespace ProcessAffinityUI
     public partial class ProcessPriorityWindow : Window
     {
         private Process _process = null;
-        private List<ProcessUserControl> _processes = null;
+        private List<Process> _processes = null;
 
         public ProcessPriorityWindow(Process process)
         {
             InitializeComponent();
 
             this._process = process;
-            this.ProcessNameLabel.Content = this._process.ProcessName;
-            this.PriorityLabel.Content = this._process.Priority.ToString();
-            this.PrioritySlider.Value = this._process.Priority;
+            ShowPriorityOf(process, process.ProcessName);
         }
 
-        public ProcessPriorityWindow(List<ProcessUserControl> processes)
+        public ProcessPriorityWindow(List<Process> processes)
         {
             InitializeComponent();
             SetProcesses(processes);
@@ -46,16 +44,90 @@ namespace ProcessAffinityUI
             return this;
         }
 
-        public void SetProcesses(List<ProcessUserControl> processes)
+        public void SetProcesses(List<Process> processes)
         {
             this._processes = processes;
             InitializePrioritySlider();
         }
 
+        /// <summary>
+        /// Le bouton « Close » applique : le curseur doit donc partir de la
+        /// priorité en place, et jamais d'une valeur inventée. Il partait de zéro,
+        /// si bien qu'ouvrir puis refermer la fenêtre appliquait « Idle » à toute
+        /// la sélection.
+        /// </summary>
         private void InitializePrioritySlider()
         {
-            this.PriorityLabel.Content = "0";
-            PrioritySlider.Value = 0;
+            if (this._processes == null || this._processes.Count == 0)
+            {
+                this.PriorityLabel.Content = "0";
+                PrioritySlider.Value = 0;
+
+                return;
+            }
+
+            if (this._processes.Count == 1)
+            {
+                ShowPriorityOf(this._processes[0], this._processes[0].ProcessName);
+
+                return;
+            }
+
+            // Plusieurs entrées : la priorité commune quand elles la partagent,
+            // celle de la première sinon — signalée comme telle.
+            int first = GetDisplayedPriority(this._processes[0]);
+            bool allSame = this._processes.All(process => GetDisplayedPriority(process) == first);
+
+            this.ProcessNameLabel.Content = this._processes.Count + " processes"
+                + (allSame ? string.Empty : " — mixed priorities");
+
+            this.PriorityLabel.Content = first.ToString();
+            this.PrioritySlider.Value = first;
+        }
+
+        private void ShowPriorityOf(Process process, string name)
+        {
+            int priority = GetDisplayedPriority(process);
+
+            this.ProcessNameLabel.Content = name;
+            this.PriorityLabel.Content = priority.ToString();
+            this.PrioritySlider.Value = priority;
+        }
+
+        /// <summary>
+        /// Priorité à afficher, sur l'échelle 0-31 du curseur. La classe réelle
+        /// est lue en natif : Win32_Process.Priority est figé à l'énumération et
+        /// montrerait la valeur d'avant un changement venu de l'extérieur.
+        /// </summary>
+        private static int GetDisplayedPriority(Process process)
+        {
+            int? priorityClass = process.GetPriorityClass();
+
+            return priorityClass == null ? process.Priority : ToSliderValue(priorityClass.Value);
+        }
+
+        /// <summary>
+        /// Valeur de curseur représentative d'une classe de priorité.
+        /// <see cref="Process.ToProcessPriorityEnum"/> fait la conversion inverse,
+        /// et retrouve bien la classe d'origine à partir de ces valeurs.
+        /// </summary>
+        private static int ToSliderValue(int priorityClass)
+        {
+            switch (priorityClass)
+            {
+                case (int)ProcessPriorityEnum.Idle:
+                    return 4;
+                case (int)ProcessPriorityEnum.BelowNormal:
+                    return 6;
+                case (int)ProcessPriorityEnum.AboveNormal:
+                    return 10;
+                case (int)ProcessPriorityEnum.HighPriority:
+                    return 13;
+                case (int)ProcessPriorityEnum.RealTime:
+                    return 24;
+                default:
+                    return 8;
+            }
         }
 
         private void PrioritySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -96,10 +168,17 @@ namespace ProcessAffinityUI
         {
             int appliedCount = 0;
             List<string> notModifiableNames = new List<string>();
+            List<string> goneNames = new List<string>();
 
             for (int i = 0; i < _processes.Count; i++)
             {
-                Process process = _processes[i].Process;
+                Process process = _processes[i];
+
+                if (!process.IsRunning)
+                {
+                    goneNames.Add(process.ProcessName);
+                    continue;
+                }
 
                 if (!process.IsModifiable)
                 {
@@ -119,10 +198,10 @@ namespace ProcessAffinityUI
                     //
                 }
 
-                _processes[i].SetProcessAffinityColors();
+                
             }
 
-            ProcessAffinityWindow.ReportPartialApplication("Priority", appliedCount, notModifiableNames);
+            ProcessAffinityWindow.ReportPartialApplication("Priority", appliedCount, notModifiableNames, goneNames);
         }
 
 
