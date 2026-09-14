@@ -86,6 +86,10 @@ namespace ProcessAffinityUI
         public void SetProcessPriority()
         {
             this._process.Priority = (int)Process.ToProcessPriorityEnum((int)this.PrioritySlider.Value);
+
+            // Une modification faite depuis l'application sur un processus sous
+            // règle met la règle à jour.
+            ProcessAffinityUI.Configuration.RuleEngine.UpdateIfRuled(this._process);
         }
 
             public void SetProcessesPriorities()

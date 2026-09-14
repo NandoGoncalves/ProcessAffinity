@@ -16,6 +16,7 @@ using ProcessAffinityUI.Threading;
 using System.Threading.Tasks;
 
 using System.Configuration;
+using ProcessAffinityUI.Configuration;
 
 namespace ProcessAffinityUI
 {
@@ -39,6 +40,9 @@ namespace ProcessAffinityUI
         /// la levée venant du thread de l'IHM et la lecture parfois d'un autre.
         /// </summary>
         private volatile bool _isShuttingDown = false;
+
+        /// <summary>Le fichier de règles illisible n'est signalé qu'une fois par session.</summary>
+        private bool _ruleLoadErrorReported = false;
 
         public MainWindow()
         {
@@ -656,6 +660,85 @@ namespace ProcessAffinityUI
         {
             this.ProcessControlsCountLabel.Content = "Displayed: " + GetVisibleProcessUserControlCount().ToString();
             this.ProcessesCountLabel.Content = "Total: " + (this._processes == null ? 0 : this._processes.Count).ToString();
+
+            SetFailedRulesCounter();
+        }
+
+        /// <summary>
+        /// Applique les règles enregistrées aux processus déjà en cours, puis
+        /// rafraîchit le marquage des tuiles et le décompte des échecs. Signale une
+        /// fois le fichier illisible, s'il l'est.
+        /// </summary>
+        private void ApplyRulesToExistingProcesses(Processes processes)
+        {
+            if (RuleEngine.IsDisabled)
+            {
+                return;
+            }
+
+            RuleEngine.EnsureLoaded();
+
+            if (!string.IsNullOrEmpty(RuleEngine.LoadError) && !this._ruleLoadErrorReported)
+            {
+                this._ruleLoadErrorReported = true;
+
+                MessageBox.Show(RuleEngine.LoadError, "ProcessAffinity",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
+            if (RuleEngine.Count == 0)
+            {
+                return;
+            }
+
+            processes.ApplyRulesToExistingProcesses();
+
+            // Laisse le temps à l'application des règles avant de relire l'état.
+            // Les tuiles, elles, se remettent à jour d'elles-mêmes à chaque relevé.
+            System.Threading.Tasks.Task.Delay(2500).ContinueWith(task =>
+            {
+                this.processWrapPanel.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (this._isShuttingDown)
+                    {
+                        return;
+                    }
+
+                    RefreshProcessUserControls();
+                }));
+            });
+        }
+
+        /// <summary>
+        /// Décompte des règles qui n'ont pas abouti, affiché seulement s'il y en a.
+        /// Tout ce qui n'est pas « appliquée et confirmée » compte : une règle
+        /// contestée par Windows n'a pas fait ce que l'utilisateur avait demandé.
+        /// </summary>
+        private void SetFailedRulesCounter()
+        {
+            int failedCount = 0;
+
+            if (this._processes != null)
+            {
+                foreach (Process process in this._processes.Snapshot())
+                {
+                    if (process.RuleState != RuleStateEnum.None && process.RuleState != RuleStateEnum.Applied)
+                    {
+                        failedCount++;
+                    }
+                }
+            }
+
+            if (failedCount == 0)
+            {
+                this.FailedRulesLabel.Visibility = Visibility.Collapsed;
+                this.FailedRulesLabel.Content = string.Empty;
+
+                return;
+            }
+
+            this.FailedRulesLabel.Visibility = Visibility.Visible;
+            this.FailedRulesLabel.Content = "Rules failed: " + failedCount.ToString();
         }
 
         private int GetVisibleProcessUserControlCount()
@@ -980,6 +1063,10 @@ namespace ProcessAffinityUI
                     this.InitializeProcessWrapPanel(selectedProcesses);
                     SetTitle();
 
+                    // Règles appliquées aux processus déjà en cours, en tâche de
+                    // fond : les tuiles sont déjà à l'écran, elles se remettront à
+                    // jour au relevé suivant.
+                    this.ApplyRulesToExistingProcesses(processes);
                 }
 
 

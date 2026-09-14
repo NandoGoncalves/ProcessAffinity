@@ -94,6 +94,13 @@ processeur logique dans l'IHM.
 - **Sélection multiple** : en cas d'échec partiel, appliquer ce qui peut l'être
   et présenter un rapport final. Ne pas annuler ce qui a réussi.
 
+## Pistes pour plus tard
+
+- Fenêtre dédiée listant toutes les règles enregistrées avec leur état — active,
+  contestée, orpheline, refusée faute de droits — et permettant de les modifier
+  ou supprimer sans passer par la tuile. Deviendra nécessaire au-delà d'une
+  vingtaine de règles.
+
 ## Conventions
 
 - Interface en anglais : infobulles, libellés, boutons, messages, titres de

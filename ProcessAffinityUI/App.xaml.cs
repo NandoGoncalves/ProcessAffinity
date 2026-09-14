@@ -110,12 +110,66 @@ namespace ProcessAffinityUI
             }
         }
 
+        /// <summary>
+        /// Commutateurs acceptés pour démarrer sans appliquer la moindre règle.
+        /// C'est la sortie de secours : une configuration qui bride tout sur un
+        /// seul cœur rendrait la machine inutilisable, et l'application avec elle.
+        /// </summary>
+        private static readonly string[] NoRulesSwitches =
+        {
+            "--no-rules", "-no-rules", "/no-rules", "/norules", "--norules",
+        };
+
+        private static bool IsNoRulesRequested(string[] args)
+        {
+            foreach (string argument in args)
+            {
+                foreach (string candidate in NoRulesSwitches)
+                {
+                    if (string.Equals(argument.Trim(), candidate, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         private void Application_Startup(object sender, StartupEventArgs e)
         {
             InstallGlobalExceptionHandlers();
             EnableDebugPrivilege();
 
-            if (e.Args.Length > 0)
+            // Évalué avant toute création d'entrée : aucune règle ne doit avoir eu
+            // le temps d'être appliquée quand l'utilisateur demande à s'en passer.
+            if (IsNoRulesRequested(e.Args))
+            {
+                ProcessAffinityUI.Configuration.RuleEngine.IsDisabled = true;
+
+                MessageBox.Show(
+                    "Started with saved rules disabled.\r\n\r\n"
+                    + "No affinity or priority rule will be applied during this session. "
+                    + "Existing rules are left untouched in the rules file.",
+                    "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+
+            // Le pilotage en ligne de commande attend des arguments « clé:valeur »
+            // et se termine par Environment.Exit. Un commutateur seul — sans
+            // deux-points — n'en fait pas partie : sans ce filtre, « --no-rules »
+            // faisait lever le découpage puis quittait l'application.
+            bool hasKeyedArguments = false;
+
+            foreach (string argument in e.Args)
+            {
+                if (argument.IndexOf(':') > 0)
+                {
+                    hasKeyedArguments = true;
+                    break;
+                }
+            }
+
+            if (hasKeyedArguments)
             {
                 string computerName = string.Empty;
                 string domain = string.Empty;
@@ -125,6 +179,11 @@ namespace ProcessAffinityUI
 
                 foreach (var a in e.Args)
                 {
+                    if (a.IndexOf(':') <= 0)
+                    {
+                        continue;
+                    }
+
                     switch (a.ToUpper().Substring(0, a.IndexOf(':')))
                     {
                         case "COMPUTER":

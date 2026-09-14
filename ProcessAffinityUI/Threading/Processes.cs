@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -105,6 +105,12 @@ namespace ProcessAffinityUI.Threading
         private readonly object _diffSyncRoot = new object();
 
         private readonly AutoResetEvent _materializationSignal = new AutoResetEvent(false);
+
+        /// <summary>
+        /// Entrees dont la regle doit etre retablie, mises en file par le controle
+        /// de conformite et vidées par le thread de materialisation.
+        /// </summary>
+        private readonly Dictionary<int, Process> _pendingEnforcements = new Dictionary<int, Process>();
 
         private int _tickCount = 0;
 
@@ -385,6 +391,11 @@ namespace ProcessAffinityUI.Threading
                 }
             }
 
+            // Contrôle de conformité des entrées sous règle. Lectures seules, et
+            // seulement pour celles qui en portent une : mesuré à 0,011 ms par
+            // entrée surveillée.
+            this.CheckRuleConformity(processes);
+
             // Le même relevé sert à détecter les créations et les suppressions :
             // aucun appel supplémentaire.
             this.DetectProcessChanges(processTimesByProcessID);
@@ -532,6 +543,7 @@ namespace ProcessAffinityUI.Threading
                 try
                 {
                     this.MaterializePendingCreations(cancellationToken);
+                    this.EnforcePendingRules(cancellationToken);
                 }
                 catch
                 {
@@ -615,6 +627,11 @@ namespace ProcessAffinityUI.Threading
 
                 if (add)
                 {
+                    // Sur ce thread et pas sur celui d'échantillonnage : écrire
+                    // l'affinité et la priorité, puis les relire, prend le temps
+                    // qu'il faut sans retarder le tick du % CPU.
+                    ApplyRule(process);
+
                     this.AddCreatedProcess(process);
                 }
             }
@@ -662,6 +679,121 @@ namespace ProcessAffinityUI.Threading
             {
                 this.RaiseDeleted(service);
             }
+        }
+
+        /// <summary>
+        /// Contrôle la conformité des entrées sous règle et met en file celles à
+        /// corriger. Le contrôle est une lecture, il tient dans le tick ; la
+        /// correction est une écriture suivie d'une relecture, elle part sur le
+        /// thread de matérialisation.
+        /// </summary>
+        private void CheckRuleConformity(Process[] processes)
+        {
+            List<Process> toEnforce = null;
+
+            foreach (Process process in processes)
+            {
+                try
+                {
+                    if (Configuration.RuleEngine.NeedsEnforcement(process))
+                    {
+                        toEnforce = toEnforce ?? new List<Process>();
+                        toEnforce.Add(process);
+                    }
+                }
+                catch
+                {
+                    // Un processus qui disparaît en cours de contrôle ne doit pas
+                    // interrompre les suivants.
+                }
+            }
+
+            if (toEnforce == null)
+            {
+                return;
+            }
+
+            lock (this._diffSyncRoot)
+            {
+                foreach (Process process in toEnforce)
+                {
+                    this._pendingEnforcements[process.ProcessID] = process;
+                }
+            }
+
+            this._materializationSignal.Set();
+        }
+
+        /// <summary>
+        /// Rétablit les règles mises en file par le contrôle de conformité.
+        /// </summary>
+        private void EnforcePendingRules(CancellationToken cancellationToken)
+        {
+            List<Process> pass;
+
+            lock (this._diffSyncRoot)
+            {
+                if (this._pendingEnforcements.Count == 0)
+                {
+                    return;
+                }
+
+                pass = new List<Process>(this._pendingEnforcements.Values);
+                this._pendingEnforcements.Clear();
+            }
+
+            foreach (Process process in pass)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                try
+                {
+                    Configuration.RuleEngine.Enforce(process);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        /// <summary>
+        /// Applique la règle enregistrée pour ce processus, le cas échéant. Isolée
+        /// dans son try : un fichier de règles illisible ne doit pas empêcher la
+        /// tuile d'apparaître.
+        /// </summary>
+        private static void ApplyRule(Process process)
+        {
+            try
+            {
+                Configuration.RuleEngine.Apply(process);
+            }
+            catch
+            {
+            }
+        }
+
+        /// <summary>
+        /// Applique les règles aux processus déjà en cours, au chargement initial.
+        /// Hors du thread de l'IHM : la relecture de chaque processus passe par des
+        /// appels système qui figeraient la fenêtre.
+        /// </summary>
+        public void ApplyRulesToExistingProcesses()
+        {
+            Task.Factory.StartNew(() =>
+            {
+                foreach (Process process in this.Snapshot())
+                {
+                    if (this._cpuSamplingCancellation.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    ApplyRule(process);
+                }
+            }, TaskCreationOptions.LongRunning);
         }
 
         private void AddCreatedProcess(Process process)
