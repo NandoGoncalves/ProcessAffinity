@@ -1104,21 +1104,25 @@ namespace ProcessAffinityUI
                 _processAffinityNotifyIcon.BalloonTipText = "ProcessAffinity";
                 _processAffinityNotifyIcon.ShowBalloonTip(400);
                 _processAffinityNotifyIcon.Visible = true;
-            }
-            else if (this.WindowState == WindowState.Normal)
-            {
-                ProcessUserControl.IsDisplaySuspended = false;
 
-                _processAffinityNotifyIcon.Visible = false;
-                this.ShowInTaskbar = true;
-
-                // Remise à niveau directe, sur le thread de l'IHM où l'on se
-                // trouve déjà : aucune opération n'est poussée, donc aucune
-                // rafale. Les tuiles sont restées en place et le panneau a suivi
-                // les créations et les suppressions pendant la réduction — il n'y
-                // a ni reconstruction, ni décalage à rattraper.
-                this.RefreshProcessUserControlsDisplay();
+                return;
             }
+
+            // Toute sortie de la réduction relance l'affichage, agrandie comme
+            // normale. Ne traiter que Normal laissait les tuiles figées au retour
+            // d'une fenêtre agrandie — et une fenêtre agrandie avant la réduction
+            // revient agrandie.
+            ProcessUserControl.IsDisplaySuspended = false;
+
+            _processAffinityNotifyIcon.Visible = false;
+            this.ShowInTaskbar = true;
+
+            // Remise à niveau directe, sur le thread de l'IHM où l'on se
+            // trouve déjà : aucune opération n'est poussée, donc aucune
+            // rafale. Les tuiles sont restées en place et le panneau a suivi
+            // les créations et les suppressions pendant la réduction — il n'y
+            // a ni reconstruction, ni décalage à rattraper.
+            this.RefreshProcessUserControlsDisplay();
         }
 
         
