@@ -23,6 +23,41 @@ namespace ProcessAffinityUI.Threading
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GetProcessAffinityMask(IntPtr process, out nuint processAffinityMask, out nuint systemAffinityMask);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint GetPriorityClass(IntPtr process);
+
+        /// <summary>
+        /// Classe de priorité réelle du processus, ou null si la lecture échoue.
+        ///
+        /// Indispensable : Win32_Process.Priority est figé à l'énumération. Il ne
+        /// bouge que lorsque l'application écrit elle-même par WMI, et ne reflète
+        /// jamais un changement venu de l'extérieur — mesuré : priorité passée en
+        /// BelowNormal par un tiers, WMI rendait toujours la valeur d'origine.
+        ///
+        /// Les valeurs rendues sont celles de <see cref="ProcessPriorityEnum"/> :
+        /// les constantes Win32 et l'énumération coïncident.
+        /// </summary>
+        public static int? TryGetPriorityClass(int processID)
+        {
+            IntPtr processHandle = OpenProcess(ProcessQueryLimitedInformation, false, processID);
+
+            if (processHandle == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            try
+            {
+                uint priorityClass = GetPriorityClass(processHandle);
+
+                return priorityClass == 0 ? (int?)null : (int)priorityClass;
+            }
+            finally
+            {
+                CloseHandle(processHandle);
+            }
+        }
+
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool QueryFullProcessImageName(IntPtr process, int flags, System.Text.StringBuilder imageName, ref int size);

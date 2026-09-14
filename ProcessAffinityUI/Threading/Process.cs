@@ -147,6 +147,23 @@ namespace ProcessAffinityUI.Threading
         /// </summary>
         public bool HasRuleJustApplied { get; private set; }
 
+        /// <summary>
+        /// Classe de priorité réellement en vigueur, ou null si elle n'est pas
+        /// lisible. À ne pas confondre avec <see cref="Priority"/>, qui rend la
+        /// valeur WMI capturée à l'énumération et ignore les changements venus de
+        /// l'extérieur.
+        /// </summary>
+        public int? GetPriorityClass()
+        {
+            return NativeProcessAccess.TryGetPriorityClass(this.ProcessID);
+        }
+
+        /// <summary>
+        /// Corrections consécutives appliquées à ce processus. Remis à zéro dès
+        /// qu'un contrôle le trouve conforme.
+        /// </summary>
+        internal int RuleCorrectionCount { get; set; }
+
         internal void SetRuleState(Configuration.RuleStateEnum state, string detail)
         {
             this.HasRuleJustApplied = state != Configuration.RuleStateEnum.None

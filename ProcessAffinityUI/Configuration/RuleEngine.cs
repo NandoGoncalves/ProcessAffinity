@@ -207,8 +207,17 @@ namespace ProcessAffinityUI.Configuration
                 return;
             }
 
+            // Priorité lue en natif : Win32_Process.Priority est figé à
+            // l'énumération et enregistrerait une valeur périmée dans la règle.
+            int priorityClass = process.GetPriorityClass() ?? (int)Process.ToProcessPriorityEnum(process.Priority);
+
             string error;
-            TrySave(process, affinity.Value, (int)Process.ToProcessPriorityEnum(process.Priority), out error);
+            TrySave(process, affinity.Value, priorityClass, out error);
+
+            // La règle vient d'être alignée sur l'état réel : le compteur de
+            // corrections repart de zéro, une modification voulue n'étant pas une
+            // contestation.
+            process.RuleCorrectionCount = 0;
         }
 
         public static bool TryRemove(string executablePath, out string error)
@@ -316,13 +325,20 @@ namespace ProcessAffinityUI.Configuration
                     + ", actually set " + DescribeMask(readAffinity.Value));
             }
 
-            int readPriority = (int)Process.ToProcessPriorityEnum(process.Priority);
+            // Lecture native, pas Win32_Process.Priority : celui-ci est figé à
+            // l'énumération et rendrait la valeur qu'on vient d'écrire, ce qui
+            // reviendrait à se relire soi-même plutôt que Windows.
+            int? readPriority = process.GetPriorityClass();
 
-            if (readPriority != rule.PriorityClass)
+            if (readPriority == null)
+            {
+                divergences.Add("the priority could not be read back");
+            }
+            else if (readPriority.Value != rule.PriorityClass)
             {
                 divergences.Add("priority requested "
-                    + ((ProcessPriorityEnum)rule.PriorityClass).ToString()
-                    + ", actually set " + ((ProcessPriorityEnum)readPriority).ToString());
+                    + DescribePriority(rule.PriorityClass)
+                    + ", actually set " + DescribePriority(readPriority.Value));
             }
 
             if (divergences.Count == 0)
@@ -338,6 +354,173 @@ namespace ProcessAffinityUI.Configuration
         private static string DescribeMask(nuint mask)
         {
             return "0x" + ((ulong)mask).ToString("X") + " (" + System.Numerics.BitOperations.PopCount((ulong)mask) + " cores)";
+        }
+
+        /// <summary>
+        /// Nom lisible d'une classe de priorité. L'énumération déclare
+        /// « Unknown = Normal », si bien que ToString() rend « Unknown » pour la
+        /// priorité normale — trompeur dans un message destiné à l'utilisateur.
+        /// </summary>
+        private static string DescribePriority(int priorityClass)
+        {
+            switch (priorityClass)
+            {
+                case (int)ProcessPriorityEnum.Idle:
+                    return "Idle";
+                case (int)ProcessPriorityEnum.BelowNormal:
+                    return "Below normal";
+                case (int)ProcessPriorityEnum.Normal:
+                    return "Normal";
+                case (int)ProcessPriorityEnum.AboveNormal:
+                    return "Above normal";
+                case (int)ProcessPriorityEnum.HighPriority:
+                    return "High";
+                case (int)ProcessPriorityEnum.RealTime:
+                    return "Real time";
+                default:
+                    return "class " + priorityClass.ToString();
+            }
+        }
+
+        /// <summary>
+        /// Corrections consécutives au-delà desquelles on cesse d'intervenir. Un
+        /// tiers qui réécrit aussi vite que nous corrigeons ne sera pas vaincu :
+        /// un combat invisible à deux écritures par seconde est pire que l'abandon.
+        /// </summary>
+        public const int MaximumConsecutiveCorrections = 4;
+
+        /// <summary>
+        /// Contrôle de conformité, lectures seules — affinité 0,0071 ms, priorité
+        /// 0,0041 ms. Appelé à chaque tick d'échantillonnage pour les seuls
+        /// processus sous règle appliquée.
+        ///
+        /// Ne corrige rien : rend simplement vrai quand une correction s'impose,
+        /// pour que l'écriture ait lieu sur le thread de matérialisation.
+        /// </summary>
+        public static bool NeedsEnforcement(Process process)
+        {
+            if (IsDisabled || process == null || process.IsService)
+            {
+                return false;
+            }
+
+            // Seul l'état « appliquée » est surveillé. Une règle contestée a été
+            // abandonnée, une règle refusée ou orpheline n'a rien à faire valoir.
+            if (process.RuleState != RuleStateEnum.Applied)
+            {
+                return false;
+            }
+
+            ProcessRule rule = Find(process.ExecutablePath);
+
+            if (rule == null)
+            {
+                // Règle retirée depuis : plus rien à surveiller.
+                process.SetRuleState(RuleStateEnum.None, null);
+                process.RuleCorrectionCount = 0;
+
+                return false;
+            }
+
+            nuint wanted = RestrictToExistingProcessors(rule.GetAffinityMask());
+
+            if (wanted == 0)
+            {
+                return false;
+            }
+
+            nuint? actualAffinity = process.GetProcessorAffinity();
+            int? actualPriority = process.GetPriorityClass();
+
+            // Illisible : le processus est peut-être en train de se terminer. On
+            // ne conclut pas à une divergence sur une lecture qui a échoué.
+            if (actualAffinity == null || actualPriority == null)
+            {
+                return false;
+            }
+
+            if (actualAffinity.Value == wanted && actualPriority.Value == rule.PriorityClass)
+            {
+                process.RuleCorrectionCount = 0;
+
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Rétablit la règle. Appelée depuis le thread de matérialisation : écrire
+        /// l'affinité et la priorité, puis les relire, n'a rien à faire dans le
+        /// tick du % CPU.
+        ///
+        /// Une modification venue de l'extérieur est corrigée, jamais absorbée :
+        /// la règle n'est mise à jour que par <see cref="UpdateIfRuled"/>, appelée
+        /// depuis les fenêtres d'affinité et de priorité. Sans cette distinction,
+        /// le perturbateur réécrirait la règle qu'il viole et la surveillance
+        /// s'annulerait d'elle-même.
+        /// </summary>
+        public static void Enforce(Process process)
+        {
+            if (IsDisabled || process == null || process.RuleState != RuleStateEnum.Applied)
+            {
+                return;
+            }
+
+            ProcessRule rule = Find(process.ExecutablePath);
+
+            if (rule == null)
+            {
+                return;
+            }
+
+            nuint wanted = RestrictToExistingProcessors(rule.GetAffinityMask());
+
+            if (wanted == 0)
+            {
+                return;
+            }
+
+            // Le quota est épuisé : un tiers conteste activement. On abandonne, en
+            // consignant ce qui était attendu, ce qui est en place, et quand.
+            if (process.RuleCorrectionCount >= MaximumConsecutiveCorrections)
+            {
+                Abandon(process, rule, wanted);
+
+                return;
+            }
+
+            process.RuleCorrectionCount++;
+
+            process.SetProcessorAffinity(wanted);
+
+            try
+            {
+                process.Priority = rule.PriorityClass;
+            }
+            catch
+            {
+            }
+        }
+
+        private static void Abandon(Process process, ProcessRule rule, nuint wanted)
+        {
+            nuint? actualAffinity = process.GetProcessorAffinity();
+            int? actualPriority = process.GetPriorityClass();
+
+            string detail =
+                "Another program keeps overriding this rule. ProcessAffinity stopped correcting it after "
+                + MaximumConsecutiveCorrections + " consecutive attempts.\r\n"
+                + "Expected: affinity " + DescribeMask(wanted)
+                + ", priority " + DescribePriority(rule.PriorityClass) + "\r\n"
+                + "In place: affinity "
+                + (actualAffinity == null ? "unreadable" : DescribeMask(actualAffinity.Value))
+                + ", priority "
+                + (actualPriority == null ? "unreadable" : DescribePriority(actualPriority.Value)) + "\r\n"
+                + "Given up at " + DateTime.Now.ToString("HH:mm:ss") + ".";
+
+            process.SetRuleState(RuleStateEnum.Contested, detail);
+            process.RuleCorrectionCount = 0;
         }
     }
 }
