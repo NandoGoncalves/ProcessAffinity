@@ -728,9 +728,54 @@ namespace ProcessAffinityUI
 
                 //if (processUserControls != null && processUserControls.Count() == 0)
                 //{
-                    this.processWrapPanel.Children.Add(new ProcessUserControl(process));
+                    InsertProcessUserControl(new ProcessUserControl(process), process);
                 //}
             }
+        }
+
+        /// <summary>
+        /// Insère la tuile à sa place alphabétique, dans son bloc — les processus
+        /// d'abord, les services ensuite, comme au chargement. Elle était ajoutée
+        /// en fin de panneau : une application lancée après le chargement se
+        /// retrouvait à plusieurs centaines de positions de l'endroit où on la
+        /// cherche, et passait pour absente.
+        /// </summary>
+        private void InsertProcessUserControl(ProcessUserControl processUserControl, Process process)
+        {
+            int index = this.processWrapPanel.Children.Count;
+            bool blockEntered = false;
+
+            for (int i = 0; i < this.processWrapPanel.Children.Count; i++)
+            {
+                ProcessUserControl current = this.processWrapPanel.Children[i] as ProcessUserControl;
+
+                if (current == null || current.Process == null)
+                {
+                    continue;
+                }
+
+                if (current.Process.IsService != process.IsService)
+                {
+                    // Sortie du bloc : la tuile se place juste avant ce qui suit.
+                    if (blockEntered)
+                    {
+                        index = i;
+                        break;
+                    }
+
+                    continue;
+                }
+
+                blockEntered = true;
+
+                if (string.Compare(current.Process.ProcessName, process.ProcessName) > 0)
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            this.processWrapPanel.Children.Insert(index, processUserControl);
         }
 
         private void ModifyProcessUserControl(Process process)
