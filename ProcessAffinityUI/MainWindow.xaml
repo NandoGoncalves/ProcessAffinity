@@ -59,7 +59,7 @@
                 <TextBlock Foreground="Black" />
             </Border>
             <Border Background="White" BorderBrush="Black" BorderThickness="1"  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" >
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <ScrollViewer x:Name="processScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                     <WrapPanel Background="White"  Name="processWrapPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"  />
                 </ScrollViewer>
             </Border>

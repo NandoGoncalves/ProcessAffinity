@@ -69,6 +69,13 @@ namespace ProcessAffinityUI
 
                 processWrapPanel.MouseRightButtonDown += ProcessWrapPanel_MouseRightButtonDown;
 
+                // Un clic dans le vide vide la sélection. Le ScrollViewer reçoit
+                // aussi l'abonnement : quand les tuiles ne remplissent pas la
+                // hauteur visible, la zone sous la dernière lui appartient et non
+                // au panneau.
+                processWrapPanel.MouseLeftButtonDown += ProcessWrapPanel_MouseLeftButtonDown;
+                processScrollViewer.MouseLeftButtonDown += ProcessWrapPanel_MouseLeftButtonDown;
+
                 // La tuile raisonne sur la sélection entière sans connaître la
                 // fenêtre : on lui fournit la source et le geste de vidage.
                 ProcessUserControl.SelectionSource = () =>
@@ -579,6 +586,48 @@ namespace ProcessAffinityUI
             }
 
             return entries;
+        }
+
+        /// <summary>
+        /// Clic gauche dans le panneau. Un clic sur une tuile remonte jusqu'ici en
+        /// bouillonnant : on ne vide la sélection que si la source d'origine
+        /// n'appartient à aucune tuile, c'est-à-dire si le clic a porté dans le
+        /// vide.
+        /// </summary>
+        private void ProcessWrapPanel_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (FindTile(e.OriginalSource as DependencyObject) != null)
+            {
+                return;
+            }
+
+            ClearSelection();
+        }
+
+        /// <summary>
+        /// Remonte l'arbre visuel à la recherche de la tuile qui contient
+        /// l'élément cliqué, ou null s'il n'y en a pas.
+        /// </summary>
+        private static ProcessUserControl FindTile(DependencyObject element)
+        {
+            while (element != null)
+            {
+                ProcessUserControl tile = element as ProcessUserControl;
+
+                if (tile != null)
+                {
+                    return tile;
+                }
+
+                // GetParent de l'arbre visuel lève sur ce qui n'est pas un Visual
+                // — un Run de texte, par exemple : on repasse alors par l'arbre
+                // logique.
+                element = element is System.Windows.Media.Visual
+                    ? System.Windows.Media.VisualTreeHelper.GetParent(element)
+                    : LogicalTreeHelper.GetParent(element);
+            }
+
+            return null;
         }
 
         /// <summary>
