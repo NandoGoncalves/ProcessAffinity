@@ -59,6 +59,18 @@ namespace ProcessAffinityUI.Threading
         /// </summary>
         private const int ServiceScanIntervalTicks = 5;
 
+        /// <summary>
+        /// Intervalle de réveil du thread de matérialisation en l'absence de
+        /// signal : il reprend les PID dont la requête WMI a échoué.
+        /// </summary>
+        private const int MaterializationIdleMilliseconds = 1000;
+
+        /// <summary>
+        /// Tentatives consécutives au-delà desquelles un PID est abandonné : il
+        /// entre alors dans la référence pour ne plus être redemandé.
+        /// </summary>
+        private const int MaximumMaterializationAttempts = 3;
+
         private readonly CancellationTokenSource _cpuSamplingCancellation = new CancellationTokenSource();
 
         /// <summary>
@@ -78,7 +90,36 @@ namespace ProcessAffinityUI.Threading
         /// </summary>
         private Dictionary<string, int> _knownServiceProcessIDs = null;
 
+        /// <summary>
+        /// PID détectés mais pas encore matérialisés, avec leur nombre de
+        /// tentatives.
+        /// </summary>
+        private readonly Dictionary<int, PendingCreation> _pendingCreations = new Dictionary<int, PendingCreation>();
+
+        /// <summary>
+        /// Sérialise l'état du diff — référence et file d'attente — entre le
+        /// thread d'échantillonnage qui détecte et celui qui matérialise. Distinct
+        /// de <see cref="_syncRoot"/>, qui garde la collection : les deux ne sont
+        /// jamais tenus ensemble.
+        /// </summary>
+        private readonly object _diffSyncRoot = new object();
+
+        private readonly AutoResetEvent _materializationSignal = new AutoResetEvent(false);
+
         private int _tickCount = 0;
+
+        /// <summary>Processus vu au relevé, en attente de sa requête WMI.</summary>
+        private sealed class PendingCreation
+        {
+            public PendingCreation(long createTime)
+            {
+                this.CreateTime = createTime;
+            }
+
+            public long CreateTime { get; private set; }
+
+            public int Attempts { get; set; }
+        }
 
         public Processes()
             :this(TargetInstanceEnum.Win32_Process)
@@ -117,10 +158,12 @@ namespace ProcessAffinityUI.Threading
             this.Initialize();
 
             Task.Factory.StartNew(() => ListenCPUUsages(this._cpuSamplingCancellation.Token), TaskCreationOptions.LongRunning);
+            Task.Factory.StartNew(() => ListenCreations(this._cpuSamplingCancellation.Token), TaskCreationOptions.LongRunning);
         }
 
         /// <summary>
-        /// Arrête la boucle d'échantillonnage du % CPU. Idempotent.
+        /// Arrête la boucle d'échantillonnage du % CPU et, avec elle, celle de
+        /// matérialisation. Idempotent.
         /// </summary>
         public void StopCPUSampling()
         {
@@ -137,7 +180,11 @@ namespace ProcessAffinityUI.Threading
             // GC.Collect() qui suivait ne servait qu'à forcer la libération des
             // objets de souscription. Dispose() est désormais immédiat.
             this.StopCPUSampling();
+
+            // Les deux boucles attendent sur ces poignées ; elles interceptent
+            // l'ObjectDisposedException et sortent.
             this._cpuSamplingCancellation.Dispose();
+            this._materializationSignal.Dispose();
         }
 
         private void Initialize()
@@ -370,33 +417,204 @@ namespace ProcessAffinityUI.Threading
                 createTimesByProcessID[pair.Key] = pair.Value.CreateTime;
             }
 
-            Dictionary<int, long> previous = this._knownProcessCreateTimes;
-            this._knownProcessCreateTimes = createTimesByProcessID;
+            List<int> deletions = new List<int>();
+            bool hasNewCreations = false;
 
-            if (previous == null)
+            lock (this._diffSyncRoot)
             {
-                // Premier tick : la liste vient d'être énumérée, on se contente
-                // d'établir la référence sans rien signaler.
-                return;
-            }
-
-            foreach (KeyValuePair<int, long> pair in previous)
-            {
-                long createTime;
-
-                if (!createTimesByProcessID.TryGetValue(pair.Key, out createTime) || createTime != pair.Value)
+                if (this._knownProcessCreateTimes == null)
                 {
-                    this.RaiseProcessDeleted(pair.Key);
+                    // Premier tick : la liste vient d'être énumérée, on se
+                    // contente d'établir la référence sans rien signaler.
+                    this._knownProcessCreateTimes = createTimesByProcessID;
+                    return;
+                }
+
+                foreach (KeyValuePair<int, long> pair in this._knownProcessCreateTimes)
+                {
+                    long createTime;
+
+                    if (!createTimesByProcessID.TryGetValue(pair.Key, out createTime) || createTime != pair.Value)
+                    {
+                        deletions.Add(pair.Key);
+                    }
+                }
+
+                foreach (int processID in deletions)
+                {
+                    this._knownProcessCreateTimes.Remove(processID);
+                }
+
+                // Un PID en attente qui a quitté le relevé n'aura jamais de
+                // tuile. Il n'est jamais entré dans la référence : il ne sera pas
+                // non plus signalé comme supprimé.
+                List<int> obsolete = null;
+
+                foreach (KeyValuePair<int, PendingCreation> pair in this._pendingCreations)
+                {
+                    long createTime;
+
+                    if (!createTimesByProcessID.TryGetValue(pair.Key, out createTime) || createTime != pair.Value.CreateTime)
+                    {
+                        obsolete = obsolete ?? new List<int>();
+                        obsolete.Add(pair.Key);
+                    }
+                }
+
+                if (obsolete != null)
+                {
+                    foreach (int processID in obsolete)
+                    {
+                        this._pendingCreations.Remove(processID);
+                    }
+                }
+
+                foreach (KeyValuePair<int, long> pair in createTimesByProcessID)
+                {
+                    long known;
+
+                    if (this._knownProcessCreateTimes.TryGetValue(pair.Key, out known) && known == pair.Value)
+                    {
+                        continue;
+                    }
+
+                    PendingCreation pending;
+
+                    if (this._pendingCreations.TryGetValue(pair.Key, out pending) && pending.CreateTime == pair.Value)
+                    {
+                        // Déjà en file : on garde son compteur de tentatives.
+                        continue;
+                    }
+
+                    this._pendingCreations[pair.Key] = new PendingCreation(pair.Value);
+                    hasNewCreations = true;
                 }
             }
 
-            foreach (KeyValuePair<int, long> pair in createTimesByProcessID)
+            foreach (int processID in deletions)
             {
+                this.RaiseProcessDeleted(processID);
+            }
+
+            if (hasNewCreations)
+            {
+                this._materializationSignal.Set();
+            }
+        }
+
+        /// <summary>
+        /// Boucle de matérialisation, sur son propre thread. Les requêtes WMI
+        /// n'ont rien à faire dans le tick d'échantillonnage : mesurée à 50
+        /// processus lancés d'un coup — soit une centaine avec leurs enfants —
+        /// une matérialisation en série y a tenu 13 s, gelant d'autant
+        /// l'affichage du % CPU. Ici la détection reste à l'heure quoi qu'il
+        /// arrive, et la file se vide à plein régime.
+        /// </summary>
+        private void ListenCreations(CancellationToken cancellationToken)
+        {
+            WaitHandle[] waitHandles = new WaitHandle[] { this._materializationSignal, cancellationToken.WaitHandle };
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    if (WaitHandle.WaitAny(waitHandles, MaterializationIdleMilliseconds) == 1)
+                    {
+                        break;
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+
+                try
+                {
+                    this.MaterializePendingCreations(cancellationToken);
+                }
+                catch
+                {
+                    // Une passe en échec ne doit pas arrêter les suivantes.
+                }
+            }
+        }
+
+        private void MaterializePendingCreations(CancellationToken cancellationToken)
+        {
+            List<int> pass;
+
+            lock (this._diffSyncRoot)
+            {
+                if (this._pendingCreations.Count == 0)
+                {
+                    return;
+                }
+
+                // Une passe traite chaque PID au plus une fois : sans cela un
+                // échec répété tournerait en boucle sur la même requête.
+                pass = new List<int>(this._pendingCreations.Keys);
+            }
+
+            foreach (int processID in pass)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
                 long createTime;
 
-                if (!previous.TryGetValue(pair.Key, out createTime) || createTime != pair.Value)
+                lock (this._diffSyncRoot)
                 {
-                    this.RaiseProcessCreated(pair.Key);
+                    PendingCreation pending;
+
+                    if (!this._pendingCreations.TryGetValue(processID, out pending))
+                    {
+                        // Écarté entre-temps : le processus est mort.
+                        continue;
+                    }
+
+                    createTime = pending.CreateTime;
+                }
+
+                Process process = this.MaterializeProcess(processID);
+
+                bool add = false;
+
+                lock (this._diffSyncRoot)
+                {
+                    PendingCreation pending;
+
+                    if (!this._pendingCreations.TryGetValue(processID, out pending) || pending.CreateTime != createTime)
+                    {
+                        // Mort pendant la requête : on jette le résultat plutôt
+                        // que d'afficher la tuile d'un processus disparu.
+                        continue;
+                    }
+
+                    if (process != null)
+                    {
+                        this._pendingCreations.Remove(processID);
+                        this._knownProcessCreateTimes[processID] = createTime;
+                        add = true;
+                    }
+                    else if (++pending.Attempts >= MaximumMaterializationAttempts)
+                    {
+                        // Certains processus ne figurent jamais dans
+                        // Win32_Process — « Secure System », « Registry »,
+                        // « Memory Compression ». On cesse de les redemander,
+                        // sans quoi chaque passe paierait leur requête
+                        // indéfiniment. Les autres repasseront : c'est ce qui
+                        // évite qu'un échec transitoire de WMI fasse disparaître
+                        // un processus jusqu'au rechargement manuel.
+                        this._pendingCreations.Remove(processID);
+                        this._knownProcessCreateTimes[processID] = createTime;
+                    }
+                }
+
+                if (add)
+                {
+                    this.AddCreatedProcess(process);
                 }
             }
         }
@@ -445,17 +663,8 @@ namespace ProcessAffinityUI.Threading
             }
         }
 
-        private void RaiseProcessCreated(int processID)
+        private void AddCreatedProcess(Process process)
         {
-            Process process = this.MaterializeProcess(processID);
-
-            if (process == null)
-            {
-                // Processus déjà terminé, ou hors de portée de WMI : il n'y a
-                // rien à afficher, et il ressortira du relevé au tick suivant.
-                return;
-            }
-
             bool added;
 
             lock (this._syncRoot)

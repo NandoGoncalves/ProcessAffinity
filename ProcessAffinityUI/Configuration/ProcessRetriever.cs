@@ -17,7 +17,14 @@ namespace ProcessAffinityUI.Configuration
             if (_monitoredProcesses == null)
             {
                 var configMap = new ExeConfigurationFileMap();
-                configMap.ExeConfigFilename = ".\\ProcessAffinityUI.config";
+
+                // Résolu depuis le répertoire de l'assembly, jamais depuis le
+                // répertoire courant : lancée par un raccourci dont le « Démarrer
+                // dans » pointe ailleurs, la lecture échouait et faisait lever
+                // chaque construction de Process — les 480 entrées devenaient
+                // « error » et plus aucune tuile ne s'affichait.
+                configMap.ExeConfigFilename = System.IO.Path.Combine(
+                    AppContext.BaseDirectory, "ProcessAffinityUI.config");
                 var customConfig = ConfigurationManager.OpenMappedExeConfiguration(configMap, ConfigurationUserLevel.None);
                 ProcessRetrieverSection s = customConfig.Sections["processRetriever"] as ProcessRetrieverSection;
                 _monitoredProcesses = s.Processes;
