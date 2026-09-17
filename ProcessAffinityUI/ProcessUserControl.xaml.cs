@@ -631,7 +631,7 @@ namespace ProcessAffinityUI
                 case RuleStateEnum.Orphan:
                     return "orphaned, executable missing";
                 case RuleStateEnum.InvalidMask:
-                    return "ignored, mask invalid on this machine";
+                    return "ignored, invalid on this machine";
                 default:
                     return "none";
             }

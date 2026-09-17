@@ -39,6 +39,20 @@ namespace ProcessAffinityUI
         /// </summary>
         private bool _areCpuSetsShown = false;
 
+        /// <summary>
+        /// Vrai quand les entrées sélectionnées ne partagent pas le même réglage,
+        /// ou qu'il est illisible : l'état est alors inconnu, et non « aucune
+        /// restriction ». Les cases sont présentées indéterminées et la section
+        /// n'est pas écrite tant que l'utilisateur n'a rien décidé.
+        ///
+        /// Sans cette distinction, un état inconnu s'affichait tout coché, se
+        /// lisait comme « aucune préférence », et fermer la fenêtre sans rien
+        /// toucher effaçait le réglage des deux entrées.
+        /// </summary>
+        private bool _isBuilding = false;
+        private bool _isAffinityUndetermined = false;
+        private bool _areCpuSetsUndetermined = false;
+
         public ProcessAffinityWindow()
         {
             InitializeComponent();
@@ -116,6 +130,8 @@ namespace ProcessAffinityUI
         {
             try
             {
+                this._isBuilding = true;
+
                 ProcessAffinityUI.Threading.Processes processes = new Threading.Processes();
 
                 int processorCount = processes.GetProcessorsProperties().NumberOfLogicalProcessors;
@@ -127,6 +143,7 @@ namespace ProcessAffinityUI
                 processes = null;
 
                 nuint? processorAffinity = GetDisplayedAffinity();
+                this._isAffinityUndetermined = processorAffinity == null;
 
                 string processorsAffinities = ToBinary((ulong)(processorAffinity ?? 0), processorCount);
 
@@ -166,20 +183,35 @@ namespace ProcessAffinityUI
                 if (this._areCpuSetsShown)
                 {
                     uint[] cpuSets = GetDisplayedCpuSets();
+                    this._areCpuSetsUndetermined = cpuSets == null;
 
                     this.ProcessAffinityWrapPanel.Children.Add(CreateSectionHeader(
                         "CPU Sets — a preference",
                         "Windows normally keeps this process on the ticked processors, "
                         + "but it may use the others when it needs to. Tick everything to place no preference."));
 
-                    string cpuSetBits = ToBinary(ToMask(cpuSets, topology), processorCount);
+                    // Distinction essentielle : une liste vide est « aucune
+                    // préférence », un état connu qui se coche entièrement ; null
+                    // est « on ne sait pas », et se montre indéterminé.
+                    nuint? cpuSetMask = cpuSets == null ? (nuint?)null : ToMask(cpuSets, topology);
 
                     this.ProcessAffinityWrapPanel.Children.Add(BuildGroupedGrid(
                         topology,
-                        cpuSets == null || cpuSets.Length == 0 ? null : (nuint?)ToMask(cpuSets, topology),
-                        cpuSetBits,
+                        cpuSetMask,
+                        ToBinary(cpuSetMask ?? 0, processorCount),
                         this._cpuSetCheckBoxes));
                 }
+
+                // Une section indéterminée le dit, et dit aussi ce qui se passera
+                // si l'utilisateur n'y touche pas.
+                if (this._isAffinityUndetermined || this._areCpuSetsUndetermined)
+                {
+                    this.ProcessAffinityWrapPanel.Children.Add(CreateFootnote(
+                        "Boxes shown as undetermined mean the selected processes do not share that setting, "
+                        + "or that it could not be read. Those sections are left untouched unless you change them."));
+                }
+
+                this._isBuilding = false;
 
                 UpdateSelectionState();
                 ApplyModifiableState();
@@ -187,6 +219,8 @@ namespace ProcessAffinityUI
             }
             catch(Exception e)
             {
+                this._isBuilding = false;
+
                 MessageBox.Show(e.Message);
             }
 
@@ -332,9 +366,13 @@ namespace ProcessAffinityUI
             checkBox.Tag = index;
             checkBox.Checked += CpuCheckBox_CheckedChanged;
             checkBox.Unchecked += CpuCheckBox_CheckedChanged;
+            // Null ne veut pas dire « tout » : il veut dire « on ne sait pas ».
+            // La case le montre plutôt que d'affirmer un état.
             checkBox.IsChecked = processorAffinity == null
-                ? true
+                ? (bool?)null
                 : ("1" == processorsAffinities.Substring((processorsAffinities.Length - (index + 1)), 1));
+
+            checkBox.Indeterminate += CpuCheckBox_CheckedChanged;
 
             // Les cases sont désormais réparties dans des conteneurs imbriqués :
             // la liste, elle, reste à plat et triée par numéro de processeur, car
@@ -488,8 +526,29 @@ namespace ProcessAffinityUI
         }
 
 
+        /// <summary>
+        /// Une action de l'utilisateur sur une case lève l'indétermination de sa
+        /// grille : il vient de décider, la section sera donc écrite. Les cases
+        /// restées indéterminées comptent alors pour décochées.
+        /// </summary>
         private void CpuCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
         {
+            CheckBox checkBox = sender as CheckBox;
+
+            // Pendant la construction de la grille, les cases sont posées par le
+            // code : ce n'est pas une décision de l'utilisateur.
+            if (!this._isBuilding && checkBox != null)
+            {
+                if (this._cpuSetCheckBoxes.Contains(checkBox))
+                {
+                    this._areCpuSetsUndetermined = false;
+                }
+                else
+                {
+                    this._isAffinityUndetermined = false;
+                }
+            }
+
             UpdateSelectionState();
         }
 
@@ -641,24 +700,29 @@ namespace ProcessAffinityUI
                 }
             }
 
-            if (processorAffinity > 0)
+            // Indéterminée : l'utilisateur n'a rien décidé, on n'écrit pas.
+            if (processorAffinity > 0 && !this._isAffinityUndetermined)
             {
                 try
                 {
                     this._process.SetProcessorAffinity(processorAffinity);
-                    ApplyCpuSets();
-
-                    // Une modification faite depuis l'application sur un processus
-                    // sous règle met la règle à jour : sans cela le prochain
-                    // lancement rétablirait l'ancienne valeur, et l'utilisateur
-                    // croirait son changement perdu.
-                    ProcessAffinityUI.Configuration.RuleEngine.UpdateIfRuled(this._process);
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show(ex.Message);
                 }
             }
+
+            // Les CPU Sets ne dépendent pas de l'affinité : les imbriquer dans
+            // son écriture les privait de toute prise quand aucune case
+            // d'affinité n'était cochée.
+            ApplyCpuSets();
+
+            // Une modification faite depuis l'application sur un processus sous
+            // règle met la règle à jour : sans cela le prochain lancement
+            // rétablirait l'ancienne valeur, et l'utilisateur croirait son
+            // changement perdu.
+            ProcessAffinityUI.Configuration.RuleEngine.UpdateIfRuled(this._process);
         }
 
         /// <summary>
@@ -669,7 +733,10 @@ namespace ProcessAffinityUI
         /// </summary>
         private void ApplyCpuSets()
         {
-            if (!this._areCpuSetsShown || this._process == null)
+            // Indéterminés : les entrées ne partageaient pas le même réglage et
+            // l'utilisateur n'y a pas touché. Écrire ici effaçait les
+            // restrictions des deux entrées d'un simple aller-retour.
+            if (!this._areCpuSetsShown || this._process == null || this._areCpuSetsUndetermined)
             {
                 return;
             }
@@ -741,7 +808,17 @@ namespace ProcessAffinityUI
                 appliedCount++;
             }
 
-            ReportPartialApplication("Affinity", appliedCount, notModifiableNames, goneNames);
+            // Le sujet du rapport nomme ce qui a réellement été écrit : une
+            // section laissée indéterminée n'est pas appliquée, et le dire
+            // évite de laisser croire le contraire.
+            bool affinityWritten = !this._isAffinityUndetermined;
+            bool cpuSetsWritten = this._areCpuSetsShown && !this._areCpuSetsUndetermined;
+
+            string subject = affinityWritten && cpuSetsWritten ? "Affinity and CPU Sets"
+                : cpuSetsWritten ? "CPU Sets"
+                : "Affinity";
+
+            ReportPartialApplication(subject, appliedCount, notModifiableNames, goneNames);
         }
 
         /// <summary>

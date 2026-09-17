@@ -383,6 +383,17 @@ namespace ProcessAffinityUI.Configuration
                 return;
             }
 
+            // Même traitement que pour un masque d'affinité vide : un réglage
+            // inapplicable se signale, il ne se corrige pas. Sans cette garde, la
+            // divergence était perpétuelle, la règle « corrigée » quatre fois en
+            // vain, puis abandonnée avec un message accusant à tort un tiers de
+            // la réécrire.
+            if (IsCpuSetRuleUnresolvable(rule))
+            {
+                process.SetRuleState(RuleStateEnum.InvalidMask, DescribeUnresolvableCpuSets(rule));
+                return;
+            }
+
             process.SetProcessorAffinity(wanted);
 
             try
@@ -443,6 +454,35 @@ namespace ProcessAffinityUI.Configuration
         }
 
         /// <summary>
+        /// La règle cite-t-elle des CPU Sets qu'aucun processeur de cette machine
+        /// ne porte. Vrai seulement quand la règle s'en mêle et que la conversion
+        /// échoue : une règle sans CPU Sets, ou qui demande « aucune préférence »,
+        /// est parfaitement applicable.
+        /// </summary>
+        private static bool IsCpuSetRuleUnresolvable(ProcessRule rule)
+        {
+            return rule.CpuSetProcessors != null
+                   && ProcessPowerThrottling.AreCpuSetsSupported
+                   && ResolveCpuSetIds(rule.CpuSetProcessors) == null;
+        }
+
+        private static string DescribeUnresolvableCpuSets(ProcessRule rule)
+        {
+            if (SystemCpuSets.TryGet() == null)
+            {
+                return "The rule sets CPU Sets, but the processor topology of this machine could not be read. "
+                       + "The rule was ignored.";
+            }
+
+            return "The rule sets CPU Sets on processor"
+                   + (rule.CpuSetProcessors.Length > 1 ? "s " : " ")
+                   + string.Join(", ", rule.CpuSetProcessors)
+                   + ", none of which exists on this machine — it has "
+                   + Environment.ProcessorCount + " logical processors. "
+                   + "It was probably saved on a larger machine. The rule was ignored.";
+        }
+
+        /// <summary>
         /// Écrit les deux réglages de la version 2, chacun seulement si la règle
         /// s'en mêle. Une règle de version 1 n'y touche pas.
         /// </summary>
@@ -498,8 +538,9 @@ namespace ProcessAffinityUI.Configuration
 
             if (wanted == null)
             {
-                divergences.Add("the saved CPU Sets match no processor of this machine");
-
+                // Inapplicable : traité en amont comme un état à part entière,
+                // jamais comme une divergence — celle-ci ne se résorberait
+                // jamais.
                 return divergences;
             }
 
@@ -644,6 +685,15 @@ namespace ProcessAffinityUI.Configuration
 
             if (wanted == 0)
             {
+                return false;
+            }
+
+            // Inapplicable : on ne surveille pas ce qu'on ne saurait pas poser.
+            if (IsCpuSetRuleUnresolvable(rule))
+            {
+                process.SetRuleState(RuleStateEnum.InvalidMask, DescribeUnresolvableCpuSets(rule));
+                process.RuleCorrectionCount = 0;
+
                 return false;
             }
 
