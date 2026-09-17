@@ -1,23 +1,25 @@
 ﻿<Window x:Class="ProcessAffinityUI.ProcessAffinityWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Processor Affinity" Icon="ProcessAffinity.ico" mc:Ignorable="d" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" Height="208" Width="300"  >
+        Title="Processor Affinity" Icon="ProcessAffinity.ico" mc:Ignorable="d" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        Width="472" SizeToContent="Height" MaxHeight="720" MinHeight="200" Background="White">
     <Grid>
-        <DockPanel LastChildFill="True" >
-            <Border Width="11" Background="White" BorderBrush="White" BorderThickness="0" DockPanel.Dock="Left"></Border>            
+        <DockPanel LastChildFill="True" Margin="11,0,11,0">
             <Border Height="22" Background="White" BorderBrush="White" BorderThickness="0" DockPanel.Dock="Top">
                 <TextBlock Name="NotModifiableTextBlock" Text="" Foreground="#FF8B3A3A" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
             </Border>
             <Border Height="44" Background="White" BorderBrush="White" BorderThickness="0" DockPanel.Dock="Bottom">
                 <Grid>
-                    <Button Content="Select all" Height="23" Name="SelectAllButton" Width="120" Margin="10,0,0,0" HorizontalAlignment="Left" Click="SelectAllButton_Click" />
-                    <Button Content="Close" Height="23" Name="CloseButton" Width="75" Margin="190,0,0,0" Click="CloseButton_Click" />
+                    <Button Content="Select all" Height="23" Name="SelectAllButton" Width="120" Margin="0,0,0,0" HorizontalAlignment="Left" Click="SelectAllButton_Click" />
+                    <Button Content="Close" Height="23" Name="CloseButton" Width="75" HorizontalAlignment="Right" Click="CloseButton_Click" />
                 </Grid>
             </Border>
-            <TextBlock Foreground="Black" Height="45"></TextBlock>
-            <WrapPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Name="ProcessAffinityWrapPanel">
-                
-            </WrapPanel>
+            <!-- La hauteur suit le contenu jusqu'à MaxHeight, puis le défilement
+                 prend le relais : une machine à trente-deux ou soixante-quatre
+                 processeurs logiques ne doit pas pousser la fenêtre hors écran. -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="560">
+                <StackPanel Name="ProcessAffinityWrapPanel" Margin="0,0,0,6" />
+            </ScrollViewer>
         </DockPanel>
     </Grid>
 </Window>
