@@ -13,7 +13,7 @@ namespace ProcessAffinityUI.Threading
     /// cache. L'API n'existe qu'à partir de Windows 10 : en son absence, la
     /// lecture rend null et l'appelant retombe sur une grille plate.
     /// </summary>
-    internal static class SystemCpuSets
+    public static class SystemCpuSets
     {
         /// <summary>Taille minimale d'une entrée en x64 ; elles sont parcourues par leur propre Size.</summary>
         private const int MinimumEntrySize = 32;
@@ -41,15 +41,28 @@ namespace ProcessAffinityUI.Threading
         public readonly struct LogicalProcessor
         {
             public LogicalProcessor(int index, int coreIndex, int efficiencyClass, int group)
+                : this(index, coreIndex, efficiencyClass, group, 0)
+            {
+            }
+
+            public LogicalProcessor(int index, int coreIndex, int efficiencyClass, int group, uint id)
             {
                 this.Index = index;
                 this.CoreIndex = coreIndex;
                 this.EfficiencyClass = efficiencyClass;
                 this.Group = group;
+                this.Id = id;
             }
 
             /// <summary>Numéro du processeur logique, celui du masque d'affinité.</summary>
             public int Index { get; }
+
+            /// <summary>
+            /// Identifiant du CPU Set, celui qu'attend SetProcessDefaultCpuSets.
+            /// Sans rapport avec le numéro de processeur logique : il est opaque
+            /// et ne doit jamais être reconstruit à la main.
+            /// </summary>
+            public uint Id { get; }
 
             /// <summary>
             /// Cœur physique. Deux processeurs logiques qui le partagent sont deux
@@ -154,13 +167,14 @@ namespace ProcessAffinityUI.Threading
                 {
                     // Disposition de l'union CpuSet : Id à 8, Group à 12, puis les
                     // cinq octets d'index, dont CoreIndex et EfficiencyClass.
+                    uint id = (uint)Marshal.ReadInt32(entry, 8);
                     int group = (ushort)Marshal.ReadInt16(entry, 12);
                     int logicalProcessorIndex = Marshal.ReadByte(entry, 14);
                     int coreIndex = Marshal.ReadByte(entry, 15);
                     int efficiencyClass = Marshal.ReadByte(entry, 18);
 
                     processors.Add(new LogicalProcessor(
-                        logicalProcessorIndex, coreIndex, efficiencyClass, group));
+                        logicalProcessorIndex, coreIndex, efficiencyClass, group, id));
                 }
 
                 offset += size;
