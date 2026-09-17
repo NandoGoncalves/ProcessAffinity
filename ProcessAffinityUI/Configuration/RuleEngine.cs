@@ -168,6 +168,11 @@ namespace ProcessAffinityUI.Configuration
 
             rule.SetAffinityMask(restricted);
 
+            // Les deux réglages de la version 2 sont capturés dans l'état où ils
+            // se trouvent, comme l'affinité et la priorité : « Save configuration »
+            // enregistre ce qu'on voit.
+            CaptureSchedulingSettings(process, rule);
+
             lock (SyncRoot)
             {
                 _rulesByPath[rule.ExecutablePath] = rule;
@@ -218,6 +223,88 @@ namespace ProcessAffinityUI.Configuration
             // corrections repart de zéro, une modification voulue n'étant pas une
             // contestation.
             process.RuleCorrectionCount = 0;
+        }
+
+        /// <summary>
+        /// Relève le mode d'efficacité et les CPU Sets courants du processus dans
+        /// la règle. Un réglage illisible reste absent : on n'enregistre pas ce
+        /// qu'on n'a pas su lire.
+        /// </summary>
+        private static void CaptureSchedulingSettings(Process process, ProcessRule rule)
+        {
+            if (ProcessPowerThrottling.IsEfficiencyModeSupported)
+            {
+                EfficiencyModeEnum? mode = process.GetEfficiencyMode();
+
+                rule.EfficiencyMode = mode == null ? (int?)null : (int)mode.Value;
+            }
+
+            if (!ProcessPowerThrottling.AreCpuSetsSupported)
+            {
+                return;
+            }
+
+            uint[] cpuSets = process.GetDefaultCpuSets();
+            SystemCpuSets.LogicalProcessor[] topology = SystemCpuSets.TryGet();
+
+            if (cpuSets == null || topology == null)
+            {
+                return;
+            }
+
+            // Stockés en numéros de processeur logique : les identifiants sont
+            // opaques et propres à une machine, un fichier de règles ne l'est pas.
+            List<int> processors = new List<int>();
+
+            foreach (SystemCpuSets.LogicalProcessor processor in topology)
+            {
+                if (Array.IndexOf(cpuSets, processor.Id) >= 0)
+                {
+                    processors.Add(processor.Index);
+                }
+            }
+
+            rule.CpuSetProcessors = processors.ToArray();
+        }
+
+        /// <summary>
+        /// Identifiants de CPU Set correspondant aux numéros de processeur de la
+        /// règle, ou null quand la conversion est impossible — topologie absente,
+        /// ou aucun des processeurs cités n'existe sur cette machine.
+        /// </summary>
+        private static uint[] ResolveCpuSetIds(int[] processors)
+        {
+            if (processors == null)
+            {
+                return null;
+            }
+
+            if (processors.Length == 0)
+            {
+                // « Aucune préférence » est un réglage à part entière.
+                return new uint[0];
+            }
+
+            SystemCpuSets.LogicalProcessor[] topology = SystemCpuSets.TryGet();
+
+            if (topology == null)
+            {
+                return null;
+            }
+
+            List<uint> ids = new List<uint>();
+
+            foreach (SystemCpuSets.LogicalProcessor processor in topology)
+            {
+                if (Array.IndexOf(processors, processor.Index) >= 0)
+                {
+                    ids.Add(processor.Id);
+                }
+            }
+
+            // Même garde que pour le masque d'affinité : une règle venue d'une
+            // machine plus large ne doit pas désigner le vide.
+            return ids.Count == 0 ? null : ids.ToArray();
         }
 
         public static bool TryRemove(string executablePath, out string error)
@@ -296,6 +383,17 @@ namespace ProcessAffinityUI.Configuration
                 return;
             }
 
+            // Même traitement que pour un masque d'affinité vide : un réglage
+            // inapplicable se signale, il ne se corrige pas. Sans cette garde, la
+            // divergence était perpétuelle, la règle « corrigée » quatre fois en
+            // vain, puis abandonnée avec un message accusant à tort un tiers de
+            // la réécrire.
+            if (IsCpuSetRuleUnresolvable(rule))
+            {
+                process.SetRuleState(RuleStateEnum.InvalidMask, DescribeUnresolvableCpuSets(rule));
+                return;
+            }
+
             process.SetProcessorAffinity(wanted);
 
             try
@@ -308,10 +406,14 @@ namespace ProcessAffinityUI.Configuration
                 // d'exception.
             }
 
+            ApplySchedulingSettings(process, rule);
+
             // Relecture systématique. Windows rétrograde la priorité temps réel
             // sans le dire, et peut ajuster un masque : écrire sans vérifier
             // reviendrait à afficher une règle appliquée qui ne l'est pas.
             List<string> divergences = new List<string>();
+
+            divergences.AddRange(GetSchedulingDivergences(process, rule));
 
             nuint? readAffinity = process.GetProcessorAffinity();
 
@@ -349,6 +451,163 @@ namespace ProcessAffinityUI.Configuration
 
             process.SetRuleState(RuleStateEnum.Contested,
                 "Windows did not honour the rule as saved: " + string.Join("; ", divergences) + ".");
+        }
+
+        /// <summary>
+        /// La règle cite-t-elle des CPU Sets qu'aucun processeur de cette machine
+        /// ne porte. Vrai seulement quand la règle s'en mêle et que la conversion
+        /// échoue : une règle sans CPU Sets, ou qui demande « aucune préférence »,
+        /// est parfaitement applicable.
+        /// </summary>
+        private static bool IsCpuSetRuleUnresolvable(ProcessRule rule)
+        {
+            return rule.CpuSetProcessors != null
+                   && ProcessPowerThrottling.AreCpuSetsSupported
+                   && ResolveCpuSetIds(rule.CpuSetProcessors) == null;
+        }
+
+        private static string DescribeUnresolvableCpuSets(ProcessRule rule)
+        {
+            if (SystemCpuSets.TryGet() == null)
+            {
+                return "The rule sets CPU Sets, but the processor topology of this machine could not be read. "
+                       + "The rule was ignored.";
+            }
+
+            return "The rule sets CPU Sets on processor"
+                   + (rule.CpuSetProcessors.Length > 1 ? "s " : " ")
+                   + string.Join(", ", rule.CpuSetProcessors)
+                   + ", none of which exists on this machine — it has "
+                   + Environment.ProcessorCount + " logical processors. "
+                   + "It was probably saved on a larger machine. The rule was ignored.";
+        }
+
+        /// <summary>
+        /// Écrit les deux réglages de la version 2, chacun seulement si la règle
+        /// s'en mêle. Une règle de version 1 n'y touche pas.
+        /// </summary>
+        private static void ApplySchedulingSettings(Process process, ProcessRule rule)
+        {
+            if (rule.EfficiencyMode != null && ProcessPowerThrottling.IsEfficiencyModeSupported)
+            {
+                process.TrySetEfficiencyMode((EfficiencyModeEnum)rule.EfficiencyMode.Value);
+            }
+
+            if (rule.CpuSetProcessors == null || !ProcessPowerThrottling.AreCpuSetsSupported)
+            {
+                return;
+            }
+
+            uint[] ids = ResolveCpuSetIds(rule.CpuSetProcessors);
+
+            if (ids != null)
+            {
+                process.TrySetDefaultCpuSets(ids.Length == 0 ? null : ids);
+            }
+        }
+
+        /// <summary>
+        /// Écarts constatés sur les deux réglages de la version 2, après relecture.
+        /// </summary>
+        private static List<string> GetSchedulingDivergences(Process process, ProcessRule rule)
+        {
+            List<string> divergences = new List<string>();
+
+            if (rule.EfficiencyMode != null && ProcessPowerThrottling.IsEfficiencyModeSupported)
+            {
+                EfficiencyModeEnum? mode = process.GetEfficiencyMode();
+
+                if (mode == null)
+                {
+                    divergences.Add("the efficiency mode could not be read back");
+                }
+                else if ((int)mode.Value != rule.EfficiencyMode.Value)
+                {
+                    divergences.Add("efficiency mode requested "
+                        + DescribeEfficiencyMode(rule.EfficiencyMode.Value)
+                        + ", actually set " + DescribeEfficiencyMode((int)mode.Value));
+                }
+            }
+
+            if (rule.CpuSetProcessors == null || !ProcessPowerThrottling.AreCpuSetsSupported)
+            {
+                return divergences;
+            }
+
+            uint[] wanted = ResolveCpuSetIds(rule.CpuSetProcessors);
+
+            if (wanted == null)
+            {
+                // Inapplicable : traité en amont comme un état à part entière,
+                // jamais comme une divergence — celle-ci ne se résorberait
+                // jamais.
+                return divergences;
+            }
+
+            uint[] actual = process.GetDefaultCpuSets();
+
+            if (actual == null)
+            {
+                divergences.Add("the CPU Sets could not be read back");
+            }
+            else if (!SameCpuSets(actual, wanted))
+            {
+                divergences.Add("CPU Sets requested " + DescribeCpuSetCount(wanted.Length)
+                    + ", actually set " + DescribeCpuSetCount(actual.Length));
+            }
+
+            return divergences;
+        }
+
+        /// <summary>
+        /// Une liste vide et la liste complète désignent le même réglage : aucune
+        /// préférence. Les confondre évite une divergence perpétuelle.
+        /// </summary>
+        private static bool SameCpuSets(uint[] actual, uint[] wanted)
+        {
+            SystemCpuSets.LogicalProcessor[] topology = SystemCpuSets.TryGet();
+            int total = topology == null ? -1 : topology.Length;
+
+            bool actualUnrestricted = actual.Length == 0 || actual.Length == total;
+            bool wantedUnrestricted = wanted.Length == 0 || wanted.Length == total;
+
+            if (actualUnrestricted || wantedUnrestricted)
+            {
+                return actualUnrestricted && wantedUnrestricted;
+            }
+
+            if (actual.Length != wanted.Length)
+            {
+                return false;
+            }
+
+            foreach (uint id in wanted)
+            {
+                if (Array.IndexOf(actual, id) < 0)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static string DescribeCpuSetCount(int count)
+        {
+            return count == 0 ? "no preference" : count + (count > 1 ? " processors" : " processor");
+        }
+
+        private static string DescribeEfficiencyMode(int mode)
+        {
+            switch ((EfficiencyModeEnum)mode)
+            {
+                case EfficiencyModeEnum.Enabled:
+                    return "throttled";
+                case EfficiencyModeEnum.Disabled:
+                    return "never throttled";
+                default:
+                    return "left to Windows";
+            }
         }
 
         private static string DescribeMask(nuint mask)
@@ -429,6 +688,15 @@ namespace ProcessAffinityUI.Configuration
                 return false;
             }
 
+            // Inapplicable : on ne surveille pas ce qu'on ne saurait pas poser.
+            if (IsCpuSetRuleUnresolvable(rule))
+            {
+                process.SetRuleState(RuleStateEnum.InvalidMask, DescribeUnresolvableCpuSets(rule));
+                process.RuleCorrectionCount = 0;
+
+                return false;
+            }
+
             nuint? actualAffinity = process.GetProcessorAffinity();
             int? actualPriority = process.GetPriorityClass();
 
@@ -439,7 +707,12 @@ namespace ProcessAffinityUI.Configuration
                 return false;
             }
 
-            if (actualAffinity.Value == wanted && actualPriority.Value == rule.PriorityClass)
+            // Les deux réglages de la version 2 sont surveillés comme les autres,
+            // quand la règle s'en mêle. Leur lecture coûte le même ordre de
+            // grandeur qu'une lecture d'affinité.
+            if (actualAffinity.Value == wanted
+                && actualPriority.Value == rule.PriorityClass
+                && GetSchedulingDivergences(process, rule).Count == 0)
             {
                 process.RuleCorrectionCount = 0;
 
@@ -501,6 +774,8 @@ namespace ProcessAffinityUI.Configuration
             catch
             {
             }
+
+            ApplySchedulingSettings(process, rule);
 
             // L'état ne change pas — la règle reste appliquée — donc rien ne
             // rallumerait le bandeau de lui-même. Sans ce signalement, un conflit

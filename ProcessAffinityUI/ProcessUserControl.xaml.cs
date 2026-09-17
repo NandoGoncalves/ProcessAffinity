@@ -38,6 +38,7 @@ namespace ProcessAffinityUI
         private const string PriorityHeader = "Priority";
         private const string AffinityHeader = "Affinity";
         private const string ClearSelectionHeader = "Clear selection";
+        private const string EfficiencyModeHeader = "Efficiency mode";
 
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
@@ -528,6 +529,65 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
+        /// Bloc de l'infobulle consacré aux deux réglages d'ordonnancement.
+        ///
+        /// Le mode d'efficacité est présenté comme ce qui est *demandé* à Windows,
+        /// jamais comme un effet constaté : l'état se lit et s'écrit fidèlement,
+        /// mais son incidence dépend de la machine et du profil d'alimentation.
+        /// Mesuré nul sur cette machine — un utilisateur qui l'active sans rien
+        /// voir changer doit comprendre que le réglage est bien posé.
+        /// </summary>
+        private string GetSchedulingToolTipText()
+        {
+            StringBuilder builder = new StringBuilder();
+
+            if (ProcessPowerThrottling.IsEfficiencyModeSupported)
+            {
+                EfficiencyModeEnum? mode = this._process.GetEfficiencyMode();
+
+                if (mode != null)
+                {
+                    builder.Append("\r\nEfficiency mode: ");
+
+                    switch (mode.Value)
+                    {
+                        case EfficiencyModeEnum.Enabled:
+                            builder.Append("Windows is asked to throttle this process.");
+                            break;
+                        case EfficiencyModeEnum.Disabled:
+                            builder.Append("Windows is asked never to throttle this process.");
+                            break;
+                        default:
+                            builder.Append("left to Windows (default).");
+                            break;
+                    }
+
+                    if (mode.Value != EfficiencyModeEnum.SystemManaged)
+                    {
+                        builder.Append("\r\nWhether it changes anything is up to Windows, "
+                                       + "and depends on the processor and the power plan.");
+                    }
+                }
+            }
+
+            if (ProcessPowerThrottling.AreCpuSetsSupported)
+            {
+                uint[] cpuSets = this._process.GetDefaultCpuSets();
+
+                if (cpuSets != null)
+                {
+                    builder.Append("\r\nCPU Sets: ");
+                    builder.Append(cpuSets.Length == 0
+                        ? "no preference."
+                        : cpuSets.Length + (cpuSets.Length > 1 ? " processors preferred" : " processor preferred")
+                          + ", which Windows may override.");
+                }
+            }
+
+            return builder.ToString();
+        }
+
+        /// <summary>
         /// Bloc de l'infobulle consacré à la règle. Vide quand le processus n'en
         /// porte pas.
         /// </summary>
@@ -571,7 +631,7 @@ namespace ProcessAffinityUI
                 case RuleStateEnum.Orphan:
                     return "orphaned, executable missing";
                 case RuleStateEnum.InvalidMask:
-                    return "ignored, mask invalid on this machine";
+                    return "ignored, invalid on this machine";
                 default:
                     return "none";
             }
@@ -693,6 +753,11 @@ namespace ProcessAffinityUI
                 menuItem.Header = AffinityHeader + scope;
                 ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
 
+                if (ProcessPowerThrottling.IsEfficiencyModeSupported)
+                {
+                    menu.Items.Add(CreateEfficiencyModeMenu(scope));
+                }
+
                 if (selectedCount > 0)
                 {
                     menuItem = new MenuItem();
@@ -733,6 +798,98 @@ namespace ProcessAffinityUI
             this.ContextMenu = menu;
 
             
+        }
+
+        /// <summary>
+        /// Sous-menu du mode d'efficacité. Un état à trois valeurs n'appelle pas
+        /// une fenêtre, et surtout pas celle de la priorité : son bouton applique
+        /// à la fermeture, si bien qu'y loger un second réglage le réécrirait
+        /// chaque fois qu'on vient changer le premier. Une entrée de menu, elle,
+        /// applique ce qu'on a cliqué et rien d'autre.
+        /// </summary>
+        private MenuItem CreateEfficiencyModeMenu(string scope)
+        {
+            MenuItem root = new MenuItem();
+            root.Header = EfficiencyModeHeader + scope;
+
+            EfficiencyModeEnum? current = this._process.GetEfficiencyMode();
+
+            foreach (EfficiencyModeEnum mode in new[]
+                     { EfficiencyModeEnum.Enabled, EfficiencyModeEnum.Disabled, EfficiencyModeEnum.SystemManaged })
+            {
+                MenuItem item = new MenuItem();
+                item.Header = GetEfficiencyModeText(mode);
+                item.Tag = mode;
+                item.IsCheckable = false;
+
+                // Coche sur l'état en place. Sans sélection multiple, elle dit
+                // d'un coup d'œil ce qui est demandé à Windows pour ce processus.
+                item.IsChecked = current != null && current.Value == mode;
+
+                item.Click += EfficiencyModeMenuClick;
+                root.Items.Add(item);
+            }
+
+            return root;
+        }
+
+        private static string GetEfficiencyModeText(EfficiencyModeEnum mode)
+        {
+            switch (mode)
+            {
+                case EfficiencyModeEnum.Enabled:
+                    return "Ask Windows to throttle it";
+                case EfficiencyModeEnum.Disabled:
+                    return "Ask Windows never to throttle it";
+                default:
+                    return "Let Windows decide (default)";
+            }
+        }
+
+        private void EfficiencyModeMenuClick(object sender, RoutedEventArgs e)
+        {
+            MenuItem item = e.OriginalSource as MenuItem;
+
+            if (item == null || !(item.Tag is EfficiencyModeEnum))
+            {
+                return;
+            }
+
+            EfficiencyModeEnum mode = (EfficiencyModeEnum)item.Tag;
+
+            // Même routage que les autres actions : la sélection prime sur la
+            // tuile visée.
+            List<Process> targets = GetSelectedProcesses();
+
+            if (targets.Count == 0)
+            {
+                targets.Add(this._process);
+            }
+
+            int appliedCount = 0;
+            List<string> notModifiableNames = new List<string>();
+            List<string> goneNames = new List<string>();
+
+            foreach (Process process in targets)
+            {
+                if (!process.IsRunning)
+                {
+                    goneNames.Add(process.ProcessName);
+                    continue;
+                }
+
+                if (!process.IsModifiable || !process.TrySetEfficiencyMode(mode))
+                {
+                    notModifiableNames.Add(process.ProcessName);
+                    continue;
+                }
+
+                appliedCount++;
+                RuleEngine.UpdateIfRuled(process);
+            }
+
+            ProcessAffinityWindow.ReportPartialApplication(
+                "Efficiency mode", appliedCount, notModifiableNames, goneNames);
         }
 
         private void ProcessUserControlContextMenuClick(object sender, RoutedEventArgs e)
@@ -1042,7 +1199,7 @@ namespace ProcessAffinityUI
                     text = text + "\r\nAffinity and priority cannot be changed without elevation.";
                 }
 
-                text = text + GetRuleToolTipText();
+                text = text + GetSchedulingToolTipText() + GetRuleToolTipText();
 
                 // Affinité et priorité s'appliquent au processus hôte : quand il
                 // en héberge plusieurs, toute modification les affecte tous.

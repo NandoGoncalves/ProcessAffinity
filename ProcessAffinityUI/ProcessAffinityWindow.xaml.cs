@@ -30,6 +30,29 @@ namespace ProcessAffinityUI
         /// </summary>
         private readonly List<CheckBox> _cpuCheckBoxes = new List<CheckBox>();
 
+        /// <summary>Cases des CPU Sets, mêmes conventions que celles de l'affinité.</summary>
+        private readonly List<CheckBox> _cpuSetCheckBoxes = new List<CheckBox>();
+
+        /// <summary>
+        /// La section des CPU Sets est-elle présentée. Fausse quand l'API manque :
+        /// on n'affiche pas un réglage qu'on ne saurait pas écrire.
+        /// </summary>
+        private bool _areCpuSetsShown = false;
+
+        /// <summary>
+        /// Vrai quand les entrées sélectionnées ne partagent pas le même réglage,
+        /// ou qu'il est illisible : l'état est alors inconnu, et non « aucune
+        /// restriction ». Les cases sont présentées indéterminées et la section
+        /// n'est pas écrite tant que l'utilisateur n'a rien décidé.
+        ///
+        /// Sans cette distinction, un état inconnu s'affichait tout coché, se
+        /// lisait comme « aucune préférence », et fermer la fenêtre sans rien
+        /// toucher effaçait le réglage des deux entrées.
+        /// </summary>
+        private bool _isBuilding = false;
+        private bool _isAffinityUndetermined = false;
+        private bool _areCpuSetsUndetermined = false;
+
         public ProcessAffinityWindow()
         {
             InitializeComponent();
@@ -107,6 +130,8 @@ namespace ProcessAffinityUI
         {
             try
             {
+                this._isBuilding = true;
+
                 ProcessAffinityUI.Threading.Processes processes = new Threading.Processes();
 
                 int processorCount = processes.GetProcessorsProperties().NumberOfLogicalProcessors;
@@ -118,26 +143,75 @@ namespace ProcessAffinityUI
                 processes = null;
 
                 nuint? processorAffinity = GetDisplayedAffinity();
+                this._isAffinityUndetermined = processorAffinity == null;
 
                 string processorsAffinities = ToBinary((ulong)(processorAffinity ?? 0), processorCount);
 
                 this._cpuCheckBoxes.Clear();
+                this._cpuSetCheckBoxes.Clear();
                 this.ProcessAffinityWrapPanel.Children.Clear();
 
                 SystemCpuSets.LogicalProcessor[] topology = SystemCpuSets.TryGet();
 
-                if (topology == null || topology.Length != processorCount)
+                // Repli : l'API n'existe qu'à partir de Windows 10, et une
+                // topologie qui ne recouvre pas le nombre de processeurs annoncé
+                // ne peut pas servir à les ranger. La grille plate reste
+                // utilisable, l'information manque, c'est tout.
+                bool grouped = topology != null && topology.Length == processorCount;
+
+                // --- Affinité, la contrainte dure ---------------------------
+                this.ProcessAffinityWrapPanel.Children.Add(CreateSectionHeader(
+                    "Processor affinity — a hard limit",
+                    "Windows will never run this process on an unticked processor."));
+
+                this.ProcessAffinityWrapPanel.Children.Add(grouped
+                    ? BuildGroupedGrid(topology, processorAffinity, processorsAffinities, this._cpuCheckBoxes)
+                    : BuildFlatGrid(processorCount, processorAffinity, processorsAffinities, this._cpuCheckBoxes));
+
+                if (grouped && topology.GroupBy(p => p.CoreIndex).Any(g => g.Count() > 1))
                 {
-                    // Repli : l'API n'existe qu'à partir de Windows 10, et une
-                    // topologie qui ne recouvre pas le nombre de processeurs
-                    // annoncé ne peut pas servir à les ranger. La grille plate
-                    // reste utilisable, l'information manque, c'est tout.
-                    BuildFlatGrid(processorCount, processorAffinity, processorsAffinities);
+                    this.ProcessAffinityWrapPanel.Children.Add(CreateFootnote(
+                        "Two boxes inside the same core are the two threads of one physical core. "
+                        + "Ticking both does not give two cores."));
                 }
-                else
+
+                // --- CPU Sets, la préférence --------------------------------
+                // Section absente quand l'API manque : mieux vaut ne rien
+                // proposer que proposer ce qui ne sera pas écrit.
+                this._areCpuSetsShown = ProcessPowerThrottling.AreCpuSetsSupported && grouped;
+
+                if (this._areCpuSetsShown)
                 {
-                    BuildGroupedGrid(topology, processorAffinity, processorsAffinities);
+                    uint[] cpuSets = GetDisplayedCpuSets();
+                    this._areCpuSetsUndetermined = cpuSets == null;
+
+                    this.ProcessAffinityWrapPanel.Children.Add(CreateSectionHeader(
+                        "CPU Sets — a preference",
+                        "Windows normally keeps this process on the ticked processors, "
+                        + "but it may use the others when it needs to. Tick everything to place no preference."));
+
+                    // Distinction essentielle : une liste vide est « aucune
+                    // préférence », un état connu qui se coche entièrement ; null
+                    // est « on ne sait pas », et se montre indéterminé.
+                    nuint? cpuSetMask = cpuSets == null ? (nuint?)null : ToMask(cpuSets, topology);
+
+                    this.ProcessAffinityWrapPanel.Children.Add(BuildGroupedGrid(
+                        topology,
+                        cpuSetMask,
+                        ToBinary(cpuSetMask ?? 0, processorCount),
+                        this._cpuSetCheckBoxes));
                 }
+
+                // Une section indéterminée le dit, et dit aussi ce qui se passera
+                // si l'utilisateur n'y touche pas.
+                if (this._isAffinityUndetermined || this._areCpuSetsUndetermined)
+                {
+                    this.ProcessAffinityWrapPanel.Children.Add(CreateFootnote(
+                        "Boxes shown as undetermined mean the selected processes do not share that setting, "
+                        + "or that it could not be read. Those sections are left untouched unless you change them."));
+                }
+
+                this._isBuilding = false;
 
                 UpdateSelectionState();
                 ApplyModifiableState();
@@ -145,6 +219,8 @@ namespace ProcessAffinityUI
             }
             catch(Exception e)
             {
+                this._isBuilding = false;
+
                 MessageBox.Show(e.Message);
             }
 
@@ -154,16 +230,16 @@ namespace ProcessAffinityUI
         /// Grille plate d'origine : une case par processeur logique, sans
         /// regroupement.
         /// </summary>
-        private void BuildFlatGrid(int processorCount, nuint? processorAffinity, string processorsAffinities)
+        private Panel BuildFlatGrid(int processorCount, nuint? processorAffinity, string processorsAffinities, List<CheckBox> target)
         {
             WrapPanel panel = new WrapPanel();
 
             for (int i = 0; i < processorCount; i++)
             {
-                panel.Children.Add(CreateCpuCheckBox(i, processorAffinity, processorsAffinities));
+                panel.Children.Add(CreateCpuCheckBox(i, processorAffinity, processorsAffinities, target));
             }
 
-            this.ProcessAffinityWrapPanel.Children.Add(panel);
+            return panel;
         }
 
         /// <summary>
@@ -174,8 +250,8 @@ namespace ProcessAffinityUI
         /// et pas d'encadré par cœur quand aucun cœur ne porte plus d'un fil, le
         /// regroupement n'ayant alors rien à signaler.
         /// </summary>
-        private void BuildGroupedGrid(
-            SystemCpuSets.LogicalProcessor[] topology, nuint? processorAffinity, string processorsAffinities)
+        private Panel BuildGroupedGrid(
+            SystemCpuSets.LogicalProcessor[] topology, nuint? processorAffinity, string processorsAffinities, List<CheckBox> target)
         {
             List<int> efficiencyClasses = topology.Select(p => p.EfficiencyClass).Distinct().ToList();
             efficiencyClasses.Sort();
@@ -194,11 +270,13 @@ namespace ProcessAffinityUI
                 coreNumberByCoreIndex[core.Key] = coreNumberByCoreIndex.Count;
             }
 
+            StackPanel section = new StackPanel();
+
             foreach (int efficiencyClass in efficiencyClasses)
             {
                 if (showClassHeaders)
                 {
-                    this.ProcessAffinityWrapPanel.Children.Add(CreateGroupHeader(
+                    section.Children.Add(CreateGroupHeader(
                         GetEfficiencyClassText(efficiencyClass, efficiencyClasses)));
                 }
 
@@ -219,25 +297,20 @@ namespace ProcessAffinityUI
                         foreach (SystemCpuSets.LogicalProcessor thread in threads)
                         {
                             classPanel.Children.Add(
-                                CreateCpuCheckBox(thread.Index, processorAffinity, processorsAffinities));
+                                CreateCpuCheckBox(thread.Index, processorAffinity, processorsAffinities, target));
                         }
 
                         continue;
                     }
 
                     classPanel.Children.Add(CreateCoreBox(
-                        coreNumberByCoreIndex[core.Key], threads, processorAffinity, processorsAffinities));
+                        coreNumberByCoreIndex[core.Key], threads, processorAffinity, processorsAffinities, target));
                 }
 
-                this.ProcessAffinityWrapPanel.Children.Add(classPanel);
+                section.Children.Add(classPanel);
             }
 
-            if (showCoreBoxes)
-            {
-                this.ProcessAffinityWrapPanel.Children.Add(CreateFootnote(
-                    "Two boxes inside the same core are the two threads of one physical core. "
-                    + "Ticking both does not give two cores."));
-            }
+            return section;
         }
 
         /// <summary>
@@ -247,7 +320,8 @@ namespace ProcessAffinityUI
             int coreNumber,
             List<SystemCpuSets.LogicalProcessor> threads,
             nuint? processorAffinity,
-            string processorsAffinities)
+            string processorsAffinities,
+            List<CheckBox> target)
         {
             StackPanel threadPanel = new StackPanel();
             threadPanel.Orientation = Orientation.Horizontal;
@@ -255,7 +329,7 @@ namespace ProcessAffinityUI
             foreach (SystemCpuSets.LogicalProcessor thread in threads)
             {
                 threadPanel.Children.Add(
-                    CreateCpuCheckBox(thread.Index, processorAffinity, processorsAffinities));
+                    CreateCpuCheckBox(thread.Index, processorAffinity, processorsAffinities, target));
             }
 
             TextBlock header = new TextBlock();
@@ -280,7 +354,7 @@ namespace ProcessAffinityUI
             return box;
         }
 
-        private CheckBox CreateCpuCheckBox(int index, nuint? processorAffinity, string processorsAffinities)
+        private CheckBox CreateCpuCheckBox(int index, nuint? processorAffinity, string processorsAffinities, List<CheckBox> target)
         {
             CheckBox checkBox = new CheckBox();
             checkBox.Content = "CPU " + index.ToString();
@@ -292,17 +366,121 @@ namespace ProcessAffinityUI
             checkBox.Tag = index;
             checkBox.Checked += CpuCheckBox_CheckedChanged;
             checkBox.Unchecked += CpuCheckBox_CheckedChanged;
+            // Null ne veut pas dire « tout » : il veut dire « on ne sait pas ».
+            // La case le montre plutôt que d'affirmer un état.
             checkBox.IsChecked = processorAffinity == null
-                ? true
+                ? (bool?)null
                 : ("1" == processorsAffinities.Substring((processorsAffinities.Length - (index + 1)), 1));
+
+            checkBox.Indeterminate += CpuCheckBox_CheckedChanged;
 
             // Les cases sont désormais réparties dans des conteneurs imbriqués :
             // la liste, elle, reste à plat et triée par numéro de processeur, car
             // SetCPUCheckBox l'indexe et SetProcessorAffinity la parcourt.
-            this._cpuCheckBoxes.Add(checkBox);
-            this._cpuCheckBoxes.Sort((x, y) => ((int)x.Tag).CompareTo((int)y.Tag));
+            target.Add(checkBox);
+            target.Sort((x, y) => ((int)x.Tag).CompareTo((int)y.Tag));
 
             return checkBox;
+        }
+
+        /// <summary>
+        /// Intitulé d'une section, suivi de la phrase qui dit ce que Windows en
+        /// fait. C'est elle qui distingue la contrainte dure de la préférence,
+        /// sans laquelle les deux grilles se ressembleraient trait pour trait.
+        /// </summary>
+        private static StackPanel CreateSectionHeader(string title, string explanation)
+        {
+            TextBlock header = new TextBlock();
+            header.Text = title;
+            header.FontWeight = FontWeights.Bold;
+            header.Margin = new Thickness(0, 8, 0, 1);
+
+            TextBlock note = new TextBlock();
+            note.Text = explanation;
+            note.FontSize = 10;
+            note.Foreground = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55));
+            note.TextWrapping = TextWrapping.Wrap;
+            note.Margin = new Thickness(0, 0, 0, 5);
+
+            StackPanel panel = new StackPanel();
+            panel.Children.Add(header);
+            panel.Children.Add(note);
+
+            return panel;
+        }
+
+        /// <summary>
+        /// Masque équivalent à une liste d'identifiants de CPU Set. Les
+        /// identifiants sont opaques : c'est la topologie qui fait le lien avec
+        /// les numéros de processeur logique.
+        /// </summary>
+        private static nuint ToMask(uint[] cpuSetIds, SystemCpuSets.LogicalProcessor[] topology)
+        {
+            if (cpuSetIds == null || cpuSetIds.Length == 0 || topology == null)
+            {
+                // Aucune restriction : toutes les cases cochées, ce que dit la
+                // phrase de la section.
+                nuint all = 0;
+
+                if (topology != null)
+                {
+                    foreach (SystemCpuSets.LogicalProcessor processor in topology)
+                    {
+                        all |= (nuint)1 << processor.Index;
+                    }
+                }
+
+                return all;
+            }
+
+            nuint mask = 0;
+
+            foreach (SystemCpuSets.LogicalProcessor processor in topology)
+            {
+                if (Array.IndexOf(cpuSetIds, processor.Id) >= 0)
+                {
+                    mask |= (nuint)1 << processor.Index;
+                }
+            }
+
+            return mask;
+        }
+
+        /// <summary>
+        /// CPU Sets à refléter, selon la même règle que l'affinité : ceux de
+        /// l'entrée unique, ceux que toutes partagent, ou rien à montrer.
+        /// </summary>
+        private uint[] GetDisplayedCpuSets()
+        {
+            if (this._process != null)
+            {
+                return ProcessPowerThrottling.GetDefaultCpuSets(this._process.ProcessID);
+            }
+
+            if (this._processes == null || this._processes.Count == 0)
+            {
+                return null;
+            }
+
+            uint[] common = ProcessPowerThrottling.GetDefaultCpuSets(this._processes[0].ProcessID);
+
+            if (common == null)
+            {
+                return null;
+            }
+
+            for (int i = 1; i < this._processes.Count; i++)
+            {
+                uint[] sets = ProcessPowerThrottling.GetDefaultCpuSets(this._processes[i].ProcessID);
+
+                if (sets == null || sets.Length != common.Length
+                    || !sets.OrderBy(id => id).SequenceEqual(common.OrderBy(id => id)))
+                {
+                    return null;
+                }
+            }
+
+            return common;
         }
 
         private static TextBlock CreateGroupHeader(string text)
@@ -348,8 +526,29 @@ namespace ProcessAffinityUI
         }
 
 
+        /// <summary>
+        /// Une action de l'utilisateur sur une case lève l'indétermination de sa
+        /// grille : il vient de décider, la section sera donc écrite. Les cases
+        /// restées indéterminées comptent alors pour décochées.
+        /// </summary>
         private void CpuCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
         {
+            CheckBox checkBox = sender as CheckBox;
+
+            // Pendant la construction de la grille, les cases sont posées par le
+            // code : ce n'est pas une décision de l'utilisateur.
+            if (!this._isBuilding && checkBox != null)
+            {
+                if (this._cpuSetCheckBoxes.Contains(checkBox))
+                {
+                    this._areCpuSetsUndetermined = false;
+                }
+                else
+                {
+                    this._isAffinityUndetermined = false;
+                }
+            }
+
             UpdateSelectionState();
         }
 
@@ -365,13 +564,20 @@ namespace ProcessAffinityUI
                 return;
             }
 
+            // Les CPU Sets exigent les mêmes droits en écriture que l'affinité :
+            // les deux grilles se désactivent ensemble.
             foreach (CheckBox cpuCheckBox in this.GetCPUCheckBoxes())
             {
                 cpuCheckBox.IsEnabled = false;
             }
 
+            foreach (CheckBox cpuSetCheckBox in this._cpuSetCheckBoxes)
+            {
+                cpuSetCheckBox.IsEnabled = false;
+            }
+
             this.SelectAllButton.IsEnabled = false;
-            this.NotModifiableTextBlock.Text = "Affinity cannot be changed without elevation.";
+            this.NotModifiableTextBlock.Text = "Affinity and CPU Sets cannot be changed without elevation.";
         }
 
         private void UpdateSelectionState()
@@ -494,23 +700,79 @@ namespace ProcessAffinityUI
                 }
             }
 
-            if (processorAffinity > 0)
+            // Indéterminée : l'utilisateur n'a rien décidé, on n'écrit pas.
+            if (processorAffinity > 0 && !this._isAffinityUndetermined)
             {
                 try
                 {
                     this._process.SetProcessorAffinity(processorAffinity);
-
-                    // Une modification faite depuis l'application sur un processus
-                    // sous règle met la règle à jour : sans cela le prochain
-                    // lancement rétablirait l'ancienne valeur, et l'utilisateur
-                    // croirait son changement perdu.
-                    ProcessAffinityUI.Configuration.RuleEngine.UpdateIfRuled(this._process);
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show(ex.Message);
                 }
             }
+
+            // Les CPU Sets ne dépendent pas de l'affinité : les imbriquer dans
+            // son écriture les privait de toute prise quand aucune case
+            // d'affinité n'était cochée.
+            ApplyCpuSets();
+
+            // Une modification faite depuis l'application sur un processus sous
+            // règle met la règle à jour : sans cela le prochain lancement
+            // rétablirait l'ancienne valeur, et l'utilisateur croirait son
+            // changement perdu.
+            ProcessAffinityUI.Configuration.RuleEngine.UpdateIfRuled(this._process);
+        }
+
+        /// <summary>
+        /// Écrit les CPU Sets du processus courant. Tout coché — ou rien — vaut
+        /// « aucune préférence » : on lève alors la restriction plutôt que de
+        /// décrire l'intégralité des processeurs, ce qui revient au même pour
+        /// l'ordonnanceur mais se relit moins bien.
+        /// </summary>
+        private void ApplyCpuSets()
+        {
+            // Indéterminés : les entrées ne partageaient pas le même réglage et
+            // l'utilisateur n'y a pas touché. Écrire ici effaçait les
+            // restrictions des deux entrées d'un simple aller-retour.
+            if (!this._areCpuSetsShown || this._process == null || this._areCpuSetsUndetermined)
+            {
+                return;
+            }
+
+            SystemCpuSets.LogicalProcessor[] topology = SystemCpuSets.TryGet();
+
+            if (topology == null)
+            {
+                return;
+            }
+
+            List<uint> selected = new List<uint>();
+
+            foreach (CheckBox checkBox in this._cpuSetCheckBoxes)
+            {
+                if (checkBox.IsChecked != true)
+                {
+                    continue;
+                }
+
+                int index = (int)checkBox.Tag;
+
+                foreach (SystemCpuSets.LogicalProcessor processor in topology)
+                {
+                    if (processor.Index == index)
+                    {
+                        selected.Add(processor.Id);
+                        break;
+                    }
+                }
+            }
+
+            bool unrestricted = selected.Count == 0 || selected.Count == this._cpuSetCheckBoxes.Count;
+
+            ProcessPowerThrottling.TrySetDefaultCpuSets(
+                this._process.ProcessID, unrestricted ? null : selected.ToArray());
         }
 
         /// <summary>
@@ -546,7 +808,17 @@ namespace ProcessAffinityUI
                 appliedCount++;
             }
 
-            ReportPartialApplication("Affinity", appliedCount, notModifiableNames, goneNames);
+            // Le sujet du rapport nomme ce qui a réellement été écrit : une
+            // section laissée indéterminée n'est pas appliquée, et le dire
+            // évite de laisser croire le contraire.
+            bool affinityWritten = !this._isAffinityUndetermined;
+            bool cpuSetsWritten = this._areCpuSetsShown && !this._areCpuSetsUndetermined;
+
+            string subject = affinityWritten && cpuSetsWritten ? "Affinity and CPU Sets"
+                : cpuSetsWritten ? "CPU Sets"
+                : "Affinity";
+
+            ReportPartialApplication(subject, appliedCount, notModifiableNames, goneNames);
         }
 
         /// <summary>
