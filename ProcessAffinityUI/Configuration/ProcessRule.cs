@@ -25,6 +25,24 @@ namespace ProcessAffinityUI.Configuration
         /// </summary>
         public int PriorityClass { get; set; }
 
+        /// <summary>
+        /// Mode d'efficacité demandé, ou null quand la règle ne s'en mêle pas.
+        /// Optionnel depuis la version 2 du format : une règle de version 1 le
+        /// laisse absent et se comporte comme avant, sans jamais y toucher.
+        /// </summary>
+        public int? EfficiencyMode { get; set; }
+
+        /// <summary>
+        /// CPU Sets voulus, exprimés en numéros de processeur logique et non en
+        /// identifiants : ceux-ci sont opaques et propres à une machine, alors
+        /// qu'un fichier de règles peut voyager. La conversion passe par la
+        /// topologie au moment de l'application.
+        ///
+        /// Null quand la règle ne s'en mêle pas ; vide signifie « aucune
+        /// préférence », ce qui est un réglage à part entière.
+        /// </summary>
+        public int[] CpuSetProcessors { get; set; }
+
         public nuint GetAffinityMask()
         {
             ulong mask;

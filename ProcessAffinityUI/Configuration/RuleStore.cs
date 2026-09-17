@@ -19,7 +19,13 @@ namespace ProcessAffinityUI.Configuration
         /// un numéro supérieur vient d'une version plus récente de l'application :
         /// on préfère l'ignorer que d'en mal interpréter le contenu.
         /// </summary>
-        public const int CurrentFormatVersion = 1;
+        /// <remarks>
+        /// Version 2 : deux champs optionnels, mode d'efficacité et CPU Sets. Une
+        /// règle de version 1 reste lisible et se comporte comme avant — c'est
+        /// précisément pour cela que le numéro de format a été écrit dès la
+        /// première version.
+        /// </remarks>
+        public const int CurrentFormatVersion = 2;
 
         private static readonly object SyncRoot = new object();
 
@@ -28,6 +34,11 @@ namespace ProcessAffinityUI.Configuration
             WriteIndented = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true,
+
+            // Les champs optionnels de la version 2 ne sont ecrits que
+            // renseignes : une regle qui ne se mele ni du mode d efficacite ni
+            // des CPU Sets reste litteralement une regle de version 1.
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         };
 
         public static string DirectoryPath

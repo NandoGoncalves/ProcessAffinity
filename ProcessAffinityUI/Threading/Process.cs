@@ -216,6 +216,36 @@ namespace ProcessAffinityUI.Threading
         }
 
         /// <summary>
+        /// Mode d'efficacité demandé pour ce processus, ou null si la lecture
+        /// échoue. « Demandé » et non « constaté » : l'état est fidèlement lu et
+        /// écrit, mais son incidence dépend de la machine et du profil
+        /// d'alimentation — mesuré nulle sur un i7-10750H sous profil Dell.
+        /// </summary>
+        public EfficiencyModeEnum? GetEfficiencyMode()
+        {
+            return ProcessPowerThrottling.GetEfficiencyMode(this.ProcessID);
+        }
+
+        public bool TrySetEfficiencyMode(EfficiencyModeEnum mode)
+        {
+            return ProcessPowerThrottling.TrySetEfficiencyMode(this.ProcessID, mode);
+        }
+
+        /// <summary>
+        /// CPU Sets par défaut, ou null si la lecture échoue. Vide signifie
+        /// « aucune préférence ».
+        /// </summary>
+        public uint[] GetDefaultCpuSets()
+        {
+            return ProcessPowerThrottling.GetDefaultCpuSets(this.ProcessID);
+        }
+
+        public bool TrySetDefaultCpuSets(uint[] cpuSetIds)
+        {
+            return ProcessPowerThrottling.TrySetDefaultCpuSets(this.ProcessID, cpuSetIds);
+        }
+
+        /// <summary>
         /// Corrections consécutives appliquées à ce processus. Remis à zéro dès
         /// qu'un contrôle le trouve conforme.
         /// </summary>
