@@ -101,16 +101,21 @@ processeur logique dans l'IHM.
   d'appliquer de travers un fichier écrit par une version plus récente. Mais
   cela veut dire qu'il suffit d'avoir enregistré une seule règle avec la version
   récente pour que le retour en arrière désactive tout.
-  **Parade en place** : avant la première réécriture qui élève le format,
-  `RuleStore` copie le fichier lu sous `rules.v<version lue>.bak` dans le même
-  dossier. Une seule fois par franchissement — la copie existante porte l'état
-  d'origine, qui vaut mieux que le plus récent — et l'échec de la copie est
-  bloquant, l'ancien fichier restant alors intact. Le refus d'un format trop
-  récent nomme cette copie dans son message : c'est le seul moment où
-  l'utilisateur en a besoin, et rien jusque-là ne lui apprend qu'elle existe.
-  Sauvegarder tout de même `%APPDATA%\ProcessAffinity\rules.json` avant une
-  redescente de version : la parade ne couvre que le franchissement vers le
-  haut, pas l'écrasement d'un fichier trop récent par une version ancienne.
+  **Parade en place** : avant toute réécriture qui change la version de format,
+  dans un sens ou dans l'autre, `RuleStore` copie le fichier lu sous
+  `rules.v<version lue>.bak` dans le même dossier — c'est bien la version du
+  fichier sauvegardé, ce qui reste lisible dans les deux sens. Une seule fois
+  par franchissement : la copie existante porte l'état d'origine, qui vaut mieux
+  que le plus récent. L'échec de la copie est bloquant, l'ancien fichier restant
+  alors intact.
+  Le sens descendant est le plus dangereux, et c'est le moins visible : le
+  fichier trop récent ayant été refusé en bloc, **aucune règle n'est chargée**,
+  si bien que la première sauvegarde de l'utilisateur remplace la totalité de
+  ses règles par la seule qu'il vient d'enregistrer. Rien à l'écran ne le
+  signale.
+  Le refus d'un format trop récent nomme la copie dans son message, quand il en
+  existe une que cette version sait lire : c'est le seul moment où l'utilisateur
+  en a besoin, et rien jusque-là ne lui apprend qu'elle existe.
 
 ## Pistes pour plus tard
 

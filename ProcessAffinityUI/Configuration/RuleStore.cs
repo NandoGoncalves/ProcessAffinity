@@ -160,7 +160,7 @@ namespace ProcessAffinityUI.Configuration
                     // La copie précède l'écriture : une fois le fichier réécrit au
                     // format courant, l'original n'est plus récupérable, et une
                     // version antérieure de l'application le refuserait en bloc.
-                    if (!TryPreserveBeforeUpgrade(out error))
+                    if (!TryPreserveBeforeFormatChange(out error))
                     {
                         return false;
                     }
@@ -198,19 +198,25 @@ namespace ProcessAffinityUI.Configuration
         }
 
         /// <summary>
-        /// Met de côté le fichier existant lorsque l'écriture qui suit va l'élever à
-        /// une version de format supérieure.
+        /// Met de côté le fichier existant lorsque l'écriture qui suit va changer sa
+        /// version de format, dans un sens ou dans l'autre.
+        ///
+        /// Vers le haut, c'est un fichier ancien qu'on élève. Vers le bas, c'est plus
+        /// grave : le fichier venait d'une version plus récente, il a été refusé en
+        /// bloc, donc aucune règle n'a été chargée — la première sauvegarde de
+        /// l'utilisateur remplace alors la totalité de ses règles par la seule qu'il
+        /// vient d'enregistrer. Sans cette copie, elles seraient perdues sans trace.
         ///
         /// Une seule fois par franchissement : si la copie est déjà là, elle porte
         /// l'état d'origine, qui vaut mieux que le plus récent. L'échec est
         /// bloquant — ne pas pouvoir protéger le fichier n'autorise pas à l'écraser.
         /// </summary>
-        private static bool TryPreserveBeforeUpgrade(out string error)
+        private static bool TryPreserveBeforeFormatChange(out string error)
         {
             error = null;
 
             if (_lastLoadedFormatVersion <= 0
-                || _lastLoadedFormatVersion >= CurrentFormatVersion
+                || _lastLoadedFormatVersion == CurrentFormatVersion
                 || !File.Exists(FilePath))
             {
                 return true;
@@ -231,8 +237,8 @@ namespace ProcessAffinityUI.Configuration
             }
             catch (Exception exception)
             {
-                error = "The rules file is about to be upgraded from format version "
-                        + _lastLoadedFormatVersion + " to " + CurrentFormatVersion
+                error = "The rules file is in format version " + _lastLoadedFormatVersion
+                        + " and is about to be rewritten in format version " + CurrentFormatVersion
                         + ", but the copy meant to preserve the original could not be written: "
                         + exception.Message
                         + "\r\n\r\nNothing was changed, so the existing rules are intact.";
