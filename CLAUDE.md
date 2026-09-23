@@ -93,6 +93,29 @@ processeur logique dans l'IHM.
   `SetThreadGroupAffinity` en P/Invoke.
 - **Sélection multiple** : en cas d'échec partiel, appliquer ce qui peut l'être
   et présenter un rapport final. Ne pas annuler ce qui a réussi.
+- **Redescente de version et fichier de règles** : toute sauvegarde réécrit
+  `rules.json` au format courant (`RuleStore.TrySave` impose
+  `CurrentFormatVersion`). Un binaire dont `CurrentFormatVersion` est inférieure
+  à celle du fichier le refuse **en bloc** — message explicite, aucune règle
+  appliquée, toutes inactives. C'est voulu : mieux vaut ne rien appliquer que
+  d'appliquer de travers un fichier écrit par une version plus récente. Mais
+  cela veut dire qu'il suffit d'avoir enregistré une seule règle avec la version
+  récente pour que le retour en arrière désactive tout.
+  **Parade en place** : avant toute réécriture qui change la version de format,
+  dans un sens ou dans l'autre, `RuleStore` copie le fichier lu sous
+  `rules.v<version lue>.bak` dans le même dossier — c'est bien la version du
+  fichier sauvegardé, ce qui reste lisible dans les deux sens. Une seule fois
+  par franchissement : la copie existante porte l'état d'origine, qui vaut mieux
+  que le plus récent. L'échec de la copie est bloquant, l'ancien fichier restant
+  alors intact.
+  Le sens descendant est le plus dangereux, et c'est le moins visible : le
+  fichier trop récent ayant été refusé en bloc, **aucune règle n'est chargée**,
+  si bien que la première sauvegarde de l'utilisateur remplace la totalité de
+  ses règles par la seule qu'il vient d'enregistrer. Rien à l'écran ne le
+  signale.
+  Le refus d'un format trop récent nomme la copie dans son message, quand il en
+  existe une que cette version sait lire : c'est le seul moment où l'utilisateur
+  en a besoin, et rien jusque-là ne lui apprend qu'elle existe.
 
 ## Pistes pour plus tard
 
@@ -100,6 +123,11 @@ processeur logique dans l'IHM.
   contestée, orpheline, refusée faute de droits — et permettant de les modifier
   ou supprimer sans passer par la tuile. Deviendra nécessaire au-delà d'une
   vingtaine de règles.
+- La même fenêtre doit rendre compte d'un fichier de règles refusé pour format
+  trop récent : c'est un état du fichier entier, pas d'une règle, et il ne se
+  manifeste aujourd'hui que par un message au chargement. Prévoir un moyen
+  d'exporter le contenu du fichier refusé — l'utilisateur ne peut rien en faire
+  autrement, et c'est le moment où il risque de le perdre.
 
 ## Conventions
 
