@@ -6,7 +6,15 @@
     <Grid>
         <DockPanel LastChildFill="True">
             <Menu DockPanel.Dock="Top" Background="White">
-                <MenuItem Header="_Help">
+                <!-- Le panneau d'éléments est un DockPanel pour que « ? » se range
+                     à droite sans que la barre cesse d'occuper toute la largeur :
+                     un simple HorizontalAlignment sur le Menu l'aurait rétréci. -->
+                <Menu.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <DockPanel HorizontalAlignment="Stretch" LastChildFill="False" />
+                    </ItemsPanelTemplate>
+                </Menu.ItemsPanel>
+                <MenuItem Header="?" DockPanel.Dock="Right" Name="HelpMenuItem">
                     <MenuItem Header="_About ProcessAffinity…" Name="AboutMenuItem" Click="AboutMenuItem_Click" />
                 </MenuItem>
             </Menu>
@@ -28,7 +36,7 @@
                     <Label Content="Password" FontSize="8" FontWeight="ExtraBold" HorizontalAlignment="Left" Margin="353,-1,0,24" Name="Passwordlabel" Visibility="Collapsed" />
                     <PasswordBox Height="21" HorizontalAlignment="Left" Margin="353,15,0,0" Name="passwordBox" VerticalAlignment="Top" Width="120" FontSize="10" FontWeight="Black" TabIndex="4" Password="" Visibility="Collapsed" />
                     <CheckBox Content="Show services" Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ShowServicesCheckBox" VerticalAlignment="Top" Width="160" FontSize="10" IsChecked="False" Checked="ShowServicesCheckBox_CheckedChanged" Unchecked="ShowServicesCheckBox_CheckedChanged" />
-                    <Label Content="Name starts with" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="168,-1,0,0" Name="NameFilterLabel" VerticalAlignment="Top" />
+                    <Label Content="Name contains" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="168,-1,0,0" Name="NameFilterLabel" VerticalAlignment="Top" />
                     <TextBox Height="20" HorizontalAlignment="Left" Margin="172,17,0,0" Name="NameFilterTextBox" VerticalAlignment="Top" Width="150" FontSize="10" TabIndex="6" TextChanged="NameFilterTextBox_TextChanged" />
                     <!-- Vider le filtre en un geste : la croix n'apparaît que
                          lorsqu'il y a quelque chose à effacer. -->

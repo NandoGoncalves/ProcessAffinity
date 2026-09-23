@@ -520,8 +520,9 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
-        /// Filtre par préfixe, sans distinction de casse : saisir « svc » montre ce
-        /// qui commence par « svc ». Un filtre vide laisse tout passer.
+        /// Filtre par fragment, sans distinction de casse : saisir « affi » montre
+        /// « ProcessAffinity », où le fragment n'est pas en tête. Un filtre vide
+        /// laisse tout passer.
         /// </summary>
         private bool MatchesNameFilter(Process process)
         {
@@ -534,7 +535,7 @@ namespace ProcessAffinityUI
 
             string name = process.ProcessName;
 
-            return name != null && name.StartsWith(filter, StringComparison.OrdinalIgnoreCase);
+            return name != null && name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void SetProcessUserControlVisibility(ProcessUserControl processUserControl)
