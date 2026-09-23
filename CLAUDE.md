@@ -100,8 +100,17 @@ processeur logique dans l'IHM.
   appliquée, toutes inactives. C'est voulu : mieux vaut ne rien appliquer que
   d'appliquer de travers un fichier écrit par une version plus récente. Mais
   cela veut dire qu'il suffit d'avoir enregistré une seule règle avec la version
-  récente pour que le retour en arrière désactive tout. Sauvegarder
-  `%APPDATA%\ProcessAffinity\rules.json` avant toute redescente de version.
+  récente pour que le retour en arrière désactive tout.
+  **Parade en place** : avant la première réécriture qui élève le format,
+  `RuleStore` copie le fichier lu sous `rules.v<version lue>.bak` dans le même
+  dossier. Une seule fois par franchissement — la copie existante porte l'état
+  d'origine, qui vaut mieux que le plus récent — et l'échec de la copie est
+  bloquant, l'ancien fichier restant alors intact. Le refus d'un format trop
+  récent nomme cette copie dans son message : c'est le seul moment où
+  l'utilisateur en a besoin, et rien jusque-là ne lui apprend qu'elle existe.
+  Sauvegarder tout de même `%APPDATA%\ProcessAffinity\rules.json` avant une
+  redescente de version : la parade ne couvre que le franchissement vers le
+  haut, pas l'écrasement d'un fichier trop récent par une version ancienne.
 
 ## Pistes pour plus tard
 
@@ -109,6 +118,11 @@ processeur logique dans l'IHM.
   contestée, orpheline, refusée faute de droits — et permettant de les modifier
   ou supprimer sans passer par la tuile. Deviendra nécessaire au-delà d'une
   vingtaine de règles.
+- La même fenêtre doit rendre compte d'un fichier de règles refusé pour format
+  trop récent : c'est un état du fichier entier, pas d'une règle, et il ne se
+  manifeste aujourd'hui que par un message au chargement. Prévoir un moyen
+  d'exporter le contenu du fichier refusé — l'utilisateur ne peut rien en faire
+  autrement, et c'est le moment où il risque de le perdre.
 
 ## Conventions
 
