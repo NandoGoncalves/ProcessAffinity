@@ -1361,13 +1361,59 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
-        /// Ferme l'application, comme la croix de la barre de titre. La réduction
-        /// dans la zone de notification reste ce qu'elle était, un geste distinct :
-        /// introduire ici un second comportement donnerait deux sens à « fermer ».
+        /// Demande, plutôt que de décider. L'application applique des règles tant
+        /// qu'elle tourne : quitter et ranger dans la zone de notification n'ont
+        /// pas les mêmes conséquences, et le bouton les confondait.
+        ///
+        /// La croix de la barre de titre ne passe pas par ici et garde son
+        /// comportement : elle quitte.
         /// </summary>
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
-            this.Close();
+            CloseChoice? remembered = SettingsStore.GetRememberedCloseChoice();
+
+            if (remembered != null)
+            {
+                ApplyCloseChoice(remembered.Value);
+                return;
+            }
+
+            CloseConfirmationWindow confirmation = new CloseConfirmationWindow();
+            confirmation.Owner = this;
+
+            confirmation.ShowDialog();
+
+            if (confirmation.ShouldRemember)
+            {
+                string error;
+
+                if (!SettingsStore.TryRememberCloseChoice(confirmation.Choice, out error))
+                {
+                    // Ne pas laisser croire qu'on se souviendra d'un choix qui n'a
+                    // pas pu être écrit : la question reviendrait sans explication.
+                    MessageBox.Show(
+                        error + "\r\n\r\nThe question will be asked again next time.",
+                        "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+
+            ApplyCloseChoice(confirmation.Choice);
+        }
+
+        private void ApplyCloseChoice(CloseChoice choice)
+        {
+            switch (choice)
+            {
+                case CloseChoice.Exit:
+                    this.Close();
+                    break;
+
+                case CloseChoice.Minimize:
+                    // Le même chemin que la réduction ordinaire : WindowStateChanged
+                    // se charge de l'icône et de l'arrêt de l'affichage.
+                    this.WindowState = WindowState.Minimized;
+                    break;
+            }
         }
 
         private void AboutMenuItem_Click(object sender, RoutedEventArgs e)

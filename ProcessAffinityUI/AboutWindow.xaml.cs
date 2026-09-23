@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
+using ProcessAffinityUI.Configuration;
 
 namespace ProcessAffinityUI
 {
@@ -36,6 +37,8 @@ namespace ProcessAffinityUI
             this.VersionTextBlock.Text = "Version " + (version == null ? "unknown" : version.ToString(3));
 
             SetEventSubscriptions(eventSubscriptionCounts);
+
+            SetCloseChoice();
 
             List<DependencyEntry> dependencies = BuildDependencyList();
 
@@ -110,6 +113,43 @@ namespace ProcessAffinityUI
             }
 
             return entries;
+        }
+
+        /// <summary>
+        /// État du choix mémorisé pour le bouton « Close ». Le bouton de remise à
+        /// zéro n'a de sens que s'il y a quelque chose à oublier.
+        /// </summary>
+        private void SetCloseChoice()
+        {
+            CloseChoice? remembered = SettingsStore.GetRememberedCloseChoice();
+
+            if (remembered == null)
+            {
+                this.CloseChoiceTextBlock.Text =
+                    "The Close button asks what to do: exit, or keep running in the notification area.";
+
+                this.ResetCloseChoiceButton.IsEnabled = false;
+
+                return;
+            }
+
+            this.CloseChoiceTextBlock.Text = remembered == CloseChoice.Exit
+                ? "The Close button exits without asking, which stops your rules being applied."
+                : "The Close button minimizes to the notification area without asking, and your rules keep being applied.";
+
+            this.ResetCloseChoiceButton.IsEnabled = true;
+        }
+
+        private void ResetCloseChoiceButton_Click(object sender, RoutedEventArgs e)
+        {
+            string error;
+
+            if (!SettingsStore.TryForgetCloseChoice(out error))
+            {
+                MessageBox.Show(error, "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
+            SetCloseChoice();
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)
