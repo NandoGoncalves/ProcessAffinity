@@ -582,32 +582,94 @@ namespace ProcessAffinityUI
 
         private void UpdateSelectionState()
         {
-            List<CheckBox> cpuCheckBoxes = this.GetCPUCheckBoxes();
-
-            bool anyChecked = cpuCheckBoxes.Any(cb => cb.IsChecked == true);
-            bool allChecked = cpuCheckBoxes.Count > 0 && cpuCheckBoxes.All(cb => cb.IsChecked == true);
-
             // Le bouton reste actif en toutes circonstances : il est aussi la
             // sortie de la fenêtre. Le désactiver privait l'utilisateur de la
             // sienne. Quand il n'y a rien à appliquer, il se contente de fermer.
-            this.SelectAllButton.Content = allChecked ? "Deselect all" : "Select all";
+            this.SelectAllButton.Content = AreAllBoxesChecked() ? "Deselect all" : "Select all";
+
+            UpdateConflictWarning();
         }
 
+        /// <summary>
+        /// Une préférence sur un processeur que l'affinité interdit ne produit
+        /// rien : la contrainte dure prime. On le signale sans rien corriger — la
+        /// saisie appartient à l'utilisateur, qui peut très bien être en train de
+        /// préparer les deux sections dans l'ordre qui lui convient.
+        /// </summary>
+        private void UpdateConflictWarning()
+        {
+            if (this.ConflictTextBlock == null)
+            {
+                return;
+            }
+
+            if (!this._areCpuSetsShown)
+            {
+                this.ConflictTextBlock.Text = string.Empty;
+
+                return;
+            }
+
+            List<int> ignored = new List<int>();
+
+            foreach (CheckBox cpuSetCheckBox in this._cpuSetCheckBoxes)
+            {
+                if (cpuSetCheckBox.IsChecked != true)
+                {
+                    continue;
+                }
+
+                int index = (int)cpuSetCheckBox.Tag;
+
+                CheckBox affinityCheckBox = this._cpuCheckBoxes
+                    .FirstOrDefault(cb => (int)cb.Tag == index);
+
+                if (affinityCheckBox != null && affinityCheckBox.IsChecked == false)
+                {
+                    ignored.Add(index);
+                }
+            }
+
+            if (ignored.Count == 0)
+            {
+                this.ConflictTextBlock.Text = string.Empty;
+
+                return;
+            }
+
+            this.ConflictTextBlock.Text =
+                (ignored.Count == 1 ? "CPU " + ignored[0] + " is preferred" : "CPUs " + string.Join(", ", ignored) + " are preferred")
+                + " but excluded by the affinity above, so the preference has no effect — the hard limit wins.";
+        }
+
+        /// <summary>
+        /// Le bouton porte sur les deux grilles. Il ne touchait que l'affinité,
+        /// si bien que « Deselect all » laissait les CPU Sets entièrement cochés
+        /// et que le libellé décrivait la moitié de ce qu'on voyait.
+        /// </summary>
         private void SelectAllButton_Click(object sender, RoutedEventArgs e)
         {
-            List<CheckBox> cpuCheckBoxes = this.GetCPUCheckBoxes();
-            bool allChecked = cpuCheckBoxes.Count > 0 && cpuCheckBoxes.All(cb => cb.IsChecked == true);
+            bool check = !AreAllBoxesChecked();
 
-            if (allChecked)
+            foreach (CheckBox checkBox in AllCheckBoxes())
             {
-                this.SetCPUCheckBoxesUnchecked();
-            }
-            else
-            {
-                this.SetCPUCheckBoxesChecked();
+                checkBox.IsChecked = check;
             }
 
             UpdateSelectionState();
+        }
+
+        /// <summary>Les cases des deux sections, dans l'ordre d'affichage.</summary>
+        private IEnumerable<CheckBox> AllCheckBoxes()
+        {
+            return this._cpuCheckBoxes.Concat(this._cpuSetCheckBoxes);
+        }
+
+        private bool AreAllBoxesChecked()
+        {
+            List<CheckBox> all = AllCheckBoxes().ToList();
+
+            return all.Count > 0 && all.All(cb => cb.IsChecked == true);
         }
 
         public List<CheckBox> GetCPUCheckBoxes()
