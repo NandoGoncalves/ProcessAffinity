@@ -93,6 +93,15 @@ processeur logique dans l'IHM.
   `SetThreadGroupAffinity` en P/Invoke.
 - **Sélection multiple** : en cas d'échec partiel, appliquer ce qui peut l'être
   et présenter un rapport final. Ne pas annuler ce qui a réussi.
+- **Redescente de version et fichier de règles** : toute sauvegarde réécrit
+  `rules.json` au format courant (`RuleStore.TrySave` impose
+  `CurrentFormatVersion`). Un binaire dont `CurrentFormatVersion` est inférieure
+  à celle du fichier le refuse **en bloc** — message explicite, aucune règle
+  appliquée, toutes inactives. C'est voulu : mieux vaut ne rien appliquer que
+  d'appliquer de travers un fichier écrit par une version plus récente. Mais
+  cela veut dire qu'il suffit d'avoir enregistré une seule règle avec la version
+  récente pour que le retour en arrière désactive tout. Sauvegarder
+  `%APPDATA%\ProcessAffinity\rules.json` avant toute redescente de version.
 
 ## Pistes pour plus tard
 
