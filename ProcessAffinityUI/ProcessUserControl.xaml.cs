@@ -783,15 +783,18 @@ namespace ProcessAffinityUI
                 // Enregistrer n'a de sens que sur une entrée dont l'affinité est
                 // lisible et le chemin connu ; retirer, que sur une entrée qui
                 // porte déjà une règle.
-                if (RuleEngine.HasRule(this._process.ExecutablePath))
+                // La portée est annoncée ici aussi : l'enregistrement n'agissait
+                // que sur la tuile cliquée, si bien qu'une sélection de trois
+                // n'obtenait qu'une règle, sans que rien ne le dise.
+                if (GetRuledTargets().Count > 0)
                 {
                     menuItem = new MenuItem();
-                    menuItem.Header = RemoveConfigurationHeader;
+                    menuItem.Header = RemoveConfigurationHeader + scope;
                     ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
                 }
 
                 menuItem = new MenuItem();
-                menuItem.Header = SaveConfigurationHeader;
+                menuItem.Header = SaveConfigurationHeader + scope;
                 ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
             }
 
@@ -952,10 +955,10 @@ namespace ProcessAffinityUI
                     KillProcess();
                     break;
                 case SaveConfigurationHeader:
-                    SaveConfiguration();
+                    SaveConfiguration(targets);
                     break;
                 case RemoveConfigurationHeader:
-                    RemoveConfiguration();
+                    RemoveConfiguration(targets);
                     break;
             }
 
@@ -966,64 +969,157 @@ namespace ProcessAffinityUI
         /// C'est bien l'état courant qui est retenu : l'utilisateur règle la tuile
         /// comme il l'entend, puis demande que cela devienne permanent.
         /// </summary>
-        private void SaveConfiguration()
+        private void SaveConfiguration(List<Process> targets)
         {
-            nuint? affinity = this._process.GetProcessorAffinity();
+            int savedCount = 0;
+            List<string> unreadableNames = new List<string>();
+            List<string> refusedNames = new List<string>();
 
-            if (affinity == null)
+            foreach (Process process in targets)
             {
-                MessageBox.Show(
-                    "The current affinity of \"" + this._process.ProcessName + "\" cannot be read, "
-                    + "so there is nothing to save.\r\n\r\n"
-                    + "Running ProcessAffinity as administrator usually makes it readable.",
-                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                nuint? affinity = process.GetProcessorAffinity();
 
-                return;
+                if (affinity == null)
+                {
+                    unreadableNames.Add(process.ProcessName);
+                    continue;
+                }
+
+                // Priorité lue en natif, comme le fait la mise à jour d'une règle
+                // existante : Win32_Process.Priority est figé à l'énumération, et
+                // enregistrer une priorité déjà modifiée par un tiers reviendrait
+                // à graver sa valeur d'origine, puis à la rétablir indéfiniment.
+                int priorityClass = process.GetPriorityClass()
+                                    ?? (int)Process.ToProcessPriorityEnum(process.Priority);
+
+                string error;
+
+                if (!RuleEngine.TrySave(process, affinity.Value, priorityClass, out error))
+                {
+                    refusedNames.Add(process.ProcessName);
+                    continue;
+                }
+
+                // Le processus porte désormais une règle, déjà satisfaite puisqu'elle
+                // reprend son état courant.
+                process.SetRuleState(RuleStateEnum.Applied, null);
+                savedCount++;
             }
 
-            // Priorité lue en natif, comme le fait la mise à jour d'une règle
-            // existante : Win32_Process.Priority est figé à l'énumération, et
-            // enregistrer une priorité déjà modifiée par un tiers reviendrait à
-            // graver sa valeur d'origine, puis à la rétablir indéfiniment.
-            int priorityClass = this._process.GetPriorityClass()
-                                ?? (int)Process.ToProcessPriorityEnum(this._process.Priority);
+            RefreshRuleMarkers();
 
-            string error;
-
-            if (!RuleEngine.TrySave(this._process, affinity.Value, priorityClass, out error))
-            {
-                MessageBox.Show(error, ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
-
-                return;
-            }
-
-            // Le processus porte désormais une règle, déjà satisfaite puisqu'elle
-            // reprend son état courant.
-            this._process.SetRuleState(RuleStateEnum.Applied, null);
-            this.SetModifiableMarker(this._process);
-
-            MessageBox.Show(
-                "Configuration saved for \"" + this._process.ProcessName + "\".\r\n\r\n"
-                + "It will be applied at every start, and when ProcessAffinity loads.\r\n\r\n"
-                + RuleEngine.FilePath,
-                ApplicationName, MessageBoxButton.OK, MessageBoxImage.Information);
+            ReportConfigurationOutcome("saved", savedCount, unreadableNames, refusedNames);
         }
 
-        private void RemoveConfiguration()
+        private void RemoveConfiguration(List<Process> targets)
         {
-            string error;
+            int removedCount = 0;
+            List<string> refusedNames = new List<string>();
 
-            RuleEngine.TryRemove(this._process.ExecutablePath, out error);
-
-            if (!string.IsNullOrEmpty(error))
+            foreach (Process process in targets)
             {
-                MessageBox.Show(error, ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                string error;
+
+                // Le retour distingue « rien à retirer » d'un échec d'écriture : sans
+                // lui, une cible sans règle serait comptée comme retirée.
+                if (!RuleEngine.TryRemove(process.ExecutablePath, out error))
+                {
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        refusedNames.Add(process.ProcessName);
+                    }
+
+                    continue;
+                }
+
+                // L'affinité et la priorité en cours ne sont pas touchées : retirer
+                // la règle cesse de la réappliquer, cela ne remet rien en arrière.
+                process.SetRuleState(RuleStateEnum.None, null);
+                removedCount++;
             }
 
-            // L'affinité et la priorité en cours ne sont pas touchées : retirer la
-            // règle cesse de la réappliquer, cela ne remet rien en arrière.
-            this._process.SetRuleState(RuleStateEnum.None, null);
-            this.SetModifiableMarker(this._process);
+            RefreshRuleMarkers();
+
+            ReportConfigurationOutcome("removed", removedCount, new List<string>(), refusedNames);
+        }
+
+        /// <summary>
+        /// Cibles de l'action qui portent déjà une règle. C'est ce qui décide de
+        /// proposer ou non le retrait.
+        /// </summary>
+        private List<Process> GetRuledTargets()
+        {
+            List<Process> targets = GetSelectedProcesses();
+
+            if (targets.Count == 0 && this._process != null)
+            {
+                targets.Add(this._process);
+            }
+
+            return targets.Where(p => RuleEngine.HasRule(p.ExecutablePath)).ToList();
+        }
+
+        /// <summary>
+        /// Repeint les bandeaux de toutes les tuiles du panneau : une action sur
+        /// une sélection change l'état d'entrées dont la tuile n'est pas celle
+        /// qu'on a cliquée. Le relevé suivant les corrigerait de toute façon,
+        /// mais une seconde d'écart sur un marquage se remarque.
+        /// </summary>
+        private static void RefreshRuleMarkers()
+        {
+            Action refresh = RuleMarkersChanged;
+
+            if (refresh != null)
+            {
+                refresh();
+            }
+        }
+
+        /// <summary>Posé par la fenêtre principale, seule à connaître le panneau.</summary>
+        public static Action RuleMarkersChanged { get; set; }
+
+        private void ReportConfigurationOutcome(
+            string verb, int count, List<string> unreadableNames, List<string> refusedNames)
+        {
+            StringBuilder builder = new StringBuilder();
+
+            builder.Append("Configuration ").Append(verb).Append(" for ").Append(count)
+                   .Append(count == 1 ? " process." : " processes.");
+
+            if (string.Equals(verb, "saved", StringComparison.Ordinal) && count > 0)
+            {
+                builder.Append("\r\n\r\nIt will be applied at every start, and when ProcessAffinity loads.")
+                       .Append("\r\n\r\n").Append(RuleEngine.FilePath);
+            }
+
+            AppendNames(builder, unreadableNames,
+                "affinity could not be read, so there was nothing to save");
+
+            AppendNames(builder, refusedNames,
+                "could not be saved — critical process, service entry, or unknown executable path");
+
+            MessageBox.Show(builder.ToString(), ApplicationName,
+                MessageBoxButton.OK,
+                unreadableNames.Count + refusedNames.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+        }
+
+        private static void AppendNames(StringBuilder builder, List<string> names, string reason)
+        {
+            if (names == null || names.Count == 0)
+            {
+                return;
+            }
+
+            const int maximumListed = 15;
+
+            builder.Append("\r\n\r\n").Append(names.Count)
+                   .Append(names.Count == 1 ? " process: " : " processes: ").Append(reason).Append("\r\n")
+                   .Append(string.Join(", ", names.Take(maximumListed)));
+
+            if (names.Count > maximumListed)
+            {
+                builder.Append(", and ").Append(names.Count - maximumListed).Append(" more");
+            }
         }
 
         /// <summary>

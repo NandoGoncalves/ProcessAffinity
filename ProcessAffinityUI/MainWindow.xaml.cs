@@ -83,6 +83,7 @@ namespace ProcessAffinityUI
 
                 ProcessUserControl.ClearSelectionRequested = this.ClearSelection;
                 ProcessUserControl.SelectionChanged = this.SetSelectedCounter;
+                ProcessUserControl.RuleMarkersChanged = this.RefreshProcessUserControls;
         }
 
         // La surcharge sans argument n'avait plus qu'un appelant, la restauration

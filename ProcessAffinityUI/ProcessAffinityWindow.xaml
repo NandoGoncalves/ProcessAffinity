@@ -8,6 +8,10 @@
             <Border Height="22" Background="White" BorderBrush="White" BorderThickness="0" DockPanel.Dock="Top">
                 <TextBlock Name="NotModifiableTextBlock" Text="" Foreground="#FF8B3A3A" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
             </Border>
+            <!-- Avertissement de cohérence entre les deux sections. Vide, il
+                 n'occupe aucune place : la fenêtre suit son contenu. -->
+            <TextBlock Name="ConflictTextBlock" Text="" DockPanel.Dock="Bottom" Foreground="#FF8B3A3A"
+                       FontSize="10" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,0" />
             <Border Height="44" Background="White" BorderBrush="White" BorderThickness="0" DockPanel.Dock="Bottom">
                 <Grid>
                     <Button Content="Select all" Height="23" Name="SelectAllButton" Width="120" Margin="0,0,0,0" HorizontalAlignment="Left" Click="SelectAllButton_Click" />
