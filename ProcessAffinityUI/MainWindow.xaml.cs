@@ -1103,6 +1103,16 @@ namespace ProcessAffinityUI
             }
 
             this.processWrapPanel.Children.Insert(index, processUserControl);
+
+            // Les filtres s'appliquent aussi à ce qui apparaît après le
+            // chargement. Sans cela, une application lancée pendant qu'un filtre
+            // est posé s'affichait quand même : la tuile naissait visible, et rien
+            // ne la soumettait au filtre avant le relevé suivant.
+            SetProcessUserControlVisibility(processUserControl);
+
+            // Et le compteur doit suivre : la tuile compte pour le total, et pour
+            // l'affichage seulement si elle passe les filtres.
+            SetCounters();
         }
 
         private void ModifyProcessUserControl(Process process)
