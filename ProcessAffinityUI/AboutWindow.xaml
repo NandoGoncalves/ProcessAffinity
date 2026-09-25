@@ -1,13 +1,21 @@
 <Window x:Class="ProcessAffinityUI.AboutWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="About ProcessAffinity" Height="500" Width="460"
+        Title="About ProcessAffinity" Height="620" Width="460"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
-        ResizeMode="CanResize" MinHeight="320" MinWidth="380"
+        ResizeMode="CanResize" MinHeight="460" MinWidth="380"
         Icon="ProcessAffinity.ico">
 
     <Grid Margin="12">
+        <!-- Sept lignes, dans cet ordre : titre, abonnements, bouton Close,
+             démarrage, libellé « Dependencies », la liste, puis le pied.
+             L'étoile est sur la liste et sur elle seule : c'est elle qui doit
+             absorber la place restante et défiler. Une ligne de trop ou de trop
+             peu la ferait passer en Auto, et elle prendrait alors la hauteur de
+             ses cinquante entrées — plus de mille pixels dans une fenêtre de
+             cinq cents, sans ascenseur et le pied hors écran. -->
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
