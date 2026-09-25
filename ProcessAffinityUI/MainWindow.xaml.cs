@@ -83,7 +83,11 @@ namespace ProcessAffinityUI
 
                 ProcessUserControl.ClearSelectionRequested = this.ClearSelection;
                 ProcessUserControl.SelectionChanged = this.SetSelectedCounter;
-                ProcessUserControl.RuleMarkersChanged = this.RefreshProcessUserControls;
+                ConfigurationCommands.MarkersChanged = this.RefreshProcessUserControls;
+
+                // La couche de commande ne connaît pas l'IHM : c'est la fenêtre qui
+                // sait poser une question.
+                ConfigurationCommands.ConflictResolver = this.AskWhichConfiguration;
         }
 
         // La surcharge sans argument n'avait plus qu'un appelant, la restauration
@@ -381,8 +385,8 @@ namespace ProcessAffinityUI
             if (hiddenByCore > 0)
             {
                 builder.Append("\r\n").Append(hiddenByCore)
-                       .Append(" hidden by the CPU ")
-                       .Append(this.CPUComboBox.SelectedValue).Append(" filter.");
+                       .Append(" hidden: not restricted to CPU ")
+                       .Append(this.CPUComboBox.SelectedValue).Append(".");
             }
 
             if (hiddenServices > 0)
@@ -398,24 +402,63 @@ namespace ProcessAffinityUI
 
             builder.Append("\r\n").Append(visible).Append(" visible");
 
-            // Affinité illisible : affichées quel que soit le cœur, faute de
-            // savoir sur lesquels elles tournent. À ne pas imputer au filtre.
-            int unreadableAffinity = hiddenByCore == 0
-                ? 0
-                : this.processWrapPanel.Children.OfType<ProcessUserControl>()
-                      .Count(child => child.Visibility == Visibility.Visible
-                                      && child.Process != null
-                                      && child.Process.IsProcessorAffinityReadable == false);
-
-            if (unreadableAffinity > 0)
-            {
-                builder.Append(", of which ").Append(unreadableAffinity)
-                       .Append(" with unknown affinity");
-            }
+            AppendCoreRestrictionBreakdown(builder);
 
             builder.Append(".");
 
             return builder.ToString();
+        }
+
+        /// <summary>
+        /// Sépare ce qui est restreint par l'affinité de ce qui l'est par les CPU
+        /// Sets, et dit combien d'entrées restent inconnues. Les confondre ferait
+        /// passer une préférence souple pour une contrainte dure, et laisserait
+        /// croire que les illisibles ont été jugées.
+        /// </summary>
+        private void AppendCoreRestrictionBreakdown(StringBuilder builder)
+        {
+            object selectedValue = this.CPUComboBox.SelectedValue;
+
+            if (selectedValue == null || selectedValue.ToString() == "ALL")
+            {
+                return;
+            }
+
+            int coreNumber = this.CPUComboBox.SelectedIndex;
+
+            int byAffinity = 0;
+            int byCpuSets = 0;
+            int unknown = 0;
+
+            foreach (ProcessUserControl child in this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                switch (GetCoreRestriction(child.Process, coreNumber))
+                {
+                    case CoreRestriction.Affinity:
+                        byAffinity++;
+                        break;
+                    case CoreRestriction.CpuSets:
+                        byCpuSets++;
+                        break;
+                    case CoreRestriction.Unknown:
+                        unknown++;
+                        break;
+                }
+            }
+
+            if (byAffinity > 0 || byCpuSets > 0)
+            {
+                builder.Append(", of which ").Append(byAffinity)
+                       .Append(" restricted by affinity and ").Append(byCpuSets)
+                       .Append(" by CPU sets");
+            }
+
+            if (unknown > 0)
+            {
+                builder.Append(".\r\n").Append(unknown)
+                       .Append(unknown > 1 ? " entries have" : " entry has")
+                       .Append(" an unreadable affinity, so it cannot be told whether they are restricted");
+            }
         }
 
         private void AttachCounterToolTip(FrameworkElement element)
@@ -459,6 +502,76 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
+        /// Ce qui restreint un processus à un cœur donné.
+        /// </summary>
+        internal enum CoreRestriction
+        {
+            /// <summary>Rien : il tourne partout, ailleurs, ou on ne sait pas.</summary>
+            None,
+
+            /// <summary>Affinité dure : son masque ne couvre pas tous les processeurs.</summary>
+            Affinity,
+
+            /// <summary>Préférence de CPU Sets, l'affinité pouvant rester complète.</summary>
+            CpuSets,
+
+            /// <summary>Affinité illisible : ni restreint ni non restreint, inconnu.</summary>
+            Unknown,
+        }
+
+        /// <summary>
+        /// Le filtre ne montre plus ce qui est <em>autorisé</em> sur le cœur choisi,
+        /// mais ce qui y est <em>restreint</em>. Presque tous les processus sont
+        /// autorisés partout : l'ancien critère ne retirait quasiment rien, et
+        /// l'usage visé — voir qui est affecté à ce cœur — se perdait dans la masse.
+        ///
+        /// Les CPU Sets comptent au même titre : un processus dont les CPU Sets
+        /// désignent ce cœur y est bien cantonné, même si son affinité reste
+        /// complète.
+        /// </summary>
+        internal static CoreRestriction GetCoreRestriction(Process process, int coreNumber)
+        {
+            if (process == null || coreNumber < 0 || coreNumber >= IntPtr.Size * 8)
+            {
+                return CoreRestriction.None;
+            }
+
+            nuint bit = (nuint)1 << coreNumber;
+            nuint allProcessors = RuleEngine.GetAllProcessorsMask();
+
+            nuint? affinity = process.GetProcessorAffinity();
+
+            if (affinity != null)
+            {
+                nuint mask = affinity.Value & allProcessors;
+
+                // Restreint, et restreint à un ensemble qui contient ce cœur. Un
+                // masque complet n'apprend rien : c'est l'état par défaut.
+                if (mask != allProcessors && (mask & bit) != 0)
+                {
+                    return CoreRestriction.Affinity;
+                }
+            }
+
+            int[] cpuSetProcessors = RuleEngine.GetCpuSetProcessors(process);
+
+            // Un tableau vide vaut « aucune préférence », et un tableau couvrant
+            // tous les processeurs ne restreint rien non plus.
+            if (cpuSetProcessors != null
+                && cpuSetProcessors.Length > 0
+                && cpuSetProcessors.Length < Environment.ProcessorCount
+                && Array.IndexOf(cpuSetProcessors, coreNumber) >= 0)
+            {
+                return CoreRestriction.CpuSets;
+            }
+
+            // L'affinité illisible est signalée en dernier : un processus dont les
+            // CPU Sets sont lisibles et concluants n'a pas à être rangé parmi les
+            // inconnus.
+            return affinity == null ? CoreRestriction.Unknown : CoreRestriction.None;
+        }
+
+        /// <summary>
         /// Ce qui écarte une tuile de l'affichage, ou <see cref="HiddenReason.None"/>
         /// quand rien ne l'écarte. Les motifs sont distingués pour que la
         /// ventilation du compteur puisse imputer chaque tuile manquante au bon
@@ -495,28 +608,14 @@ namespace ProcessAffinityUI
             }
 
             // Les cœurs occupent les indices 0 à N-1, « ALL » étant ajouté en
-            // dernier : le numéro de cœur est l'indice lui-même.
-            int coreNumber = CPUComboBox.SelectedIndex;
+            // dernier : le numéro de cœur est l'indice lui-même. Seul un processus
+            // restreint à ce cœur y figure — c'est le critère de l'étape 4c.
+            CoreRestriction restriction =
+                GetCoreRestriction(processUserControl.Process, CPUComboBox.SelectedIndex);
 
-            nuint? processorAffinity = processUserControl.Process.GetProcessorAffinity();
-
-            if (processorAffinity == null)
-            {
-                // Affinité illisible : on ne sait pas sur quels cœurs le
-                // processus tourne. L'exclure du filtre reviendrait à affirmer
-                // qu'il n'en utilise aucun.
-                return HiddenReason.None;
-            }
-
-            // Test direct du bit. Passer par la chaîne de ToBinary inversait
-            // l'ordre des cœurs : elle est de poids fort en tête, mais elle était
-            // indexée par la gauche.
-            bool runsOnSelectedCore =
-                coreNumber >= 0
-                && coreNumber < IntPtr.Size * 8
-                && (processorAffinity.Value & ((nuint)1 << coreNumber)) != 0;
-
-            return runsOnSelectedCore ? HiddenReason.None : HiddenReason.Core;
+            return restriction == CoreRestriction.Affinity || restriction == CoreRestriction.CpuSets
+                ? HiddenReason.None
+                : HiddenReason.Core;
         }
 
         /// <summary>
@@ -618,14 +717,72 @@ namespace ProcessAffinityUI
             menuItem.Header = "Is alive all processes";
             ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
 
+            // La configuration ne s'offre que sur la sélection, jamais sur tout le
+            // panneau : « enregistrer » sur trois cents processus écrirait trois
+            // cents règles d'un geste, sans commune mesure avec les autres actions
+            // de masse, qui sont réversibles et ne laissent rien derrière elles.
+            List<Process> selected = ProcessUserControl.GetSelectedProcesses();
+
+            if (selected.Count > 0)
+            {
+                menu.Items.Add(new Separator());
+
+                menuItem = new MenuItem();
+                menuItem.Header = SaveSelectedConfigurationHeader + " (" + selected.Count + " selected)";
+                ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+
+                if (ConfigurationCommands.GetRuledTargets(selected).Count > 0)
+                {
+                    menuItem = new MenuItem();
+                    menuItem.Header = RemoveSelectedConfigurationHeader + " (" + selected.Count + " selected)";
+                    ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+                }
+            }
+
             this.ContextMenu = menu;
+        }
+
+        private const string SaveSelectedConfigurationHeader = "Save configuration for selected processes";
+        private const string RemoveSelectedConfigurationHeader = "Remove configuration for selected processes";
+
+        /// <summary>
+        /// Une règle porte un chemin d'exécutable : quand la sélection tient
+        /// plusieurs instances du même programme réglées différemment, aucune ne
+        /// s'impose, et en retenir une au hasard graverait une configuration que
+        /// personne n'a désignée.
+        /// </summary>
+        private ConfigurationCommands.Candidate AskWhichConfiguration(
+            string processName, List<ConfigurationCommands.Candidate> candidates)
+        {
+            ConfigurationChoiceWindow choiceWindow = new ConfigurationChoiceWindow(processName, candidates);
+
+            choiceWindow.Owner = this;
+            choiceWindow.ShowDialog();
+
+            return choiceWindow.Chosen;
         }
         
         private delegate void ProcessesEventArrivedDelegate(Process process);
 
         private void ProcessUserControlContextMenuClick(object sender, RoutedEventArgs e)
         {
-            switch (((MenuItem)e.OriginalSource).Header.ToString())
+            string header = ((MenuItem)e.OriginalSource).Header.ToString();
+
+            // Ces deux entrées portent leur portée dans leur libellé, comme celles
+            // de la tuile : leur en-tête n'est donc pas une constante.
+            if (header.StartsWith(SaveSelectedConfigurationHeader, StringComparison.Ordinal))
+            {
+                ConfigurationCommands.Save(ProcessUserControl.GetSelectedProcesses());
+                return;
+            }
+
+            if (header.StartsWith(RemoveSelectedConfigurationHeader, StringComparison.Ordinal))
+            {
+                ConfigurationCommands.Remove(ProcessUserControl.GetSelectedProcesses());
+                return;
+            }
+
+            switch (header)
             {
                 case "Affinity all processes":
                     ProcessAffinityWindow processAffinityWindow = new ProcessAffinityWindow(GetPanelProcesses());
@@ -890,6 +1047,64 @@ namespace ProcessAffinityUI
 
             SetSelectedCounter();
             SetFailedRulesCounter();
+            SetCoreFilterToolTip();
+        }
+
+        /// <summary>
+        /// Ce que le filtre par cœur montre, sur la liste déroulante elle-même :
+        /// c'est là qu'on se pose la question, et la distinction entre contrainte
+        /// dure et préférence de CPU Sets s'y lit sans parcourir les tuiles.
+        /// </summary>
+        private void SetCoreFilterToolTip()
+        {
+            object selectedValue = this.CPUComboBox.SelectedValue;
+
+            if (selectedValue == null || selectedValue.ToString() == "ALL")
+            {
+                this.CPUComboBox.ToolTip =
+                    "Pick a CPU to show only the processes restricted to it, "
+                    + "either by a hard affinity or by a CPU Sets preference.";
+
+                return;
+            }
+
+            int coreNumber = this.CPUComboBox.SelectedIndex;
+
+            int byAffinity = 0;
+            int byCpuSets = 0;
+            int unknown = 0;
+
+            foreach (ProcessUserControl child in this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                switch (GetCoreRestriction(child.Process, coreNumber))
+                {
+                    case CoreRestriction.Affinity:
+                        byAffinity++;
+                        break;
+                    case CoreRestriction.CpuSets:
+                        byCpuSets++;
+                        break;
+                    case CoreRestriction.Unknown:
+                        unknown++;
+                        break;
+                }
+            }
+
+            StringBuilder builder = new StringBuilder();
+
+            builder.Append("Processes restricted to CPU ").Append(selectedValue).Append(":")
+                   .Append("\r\n").Append(byAffinity).Append(" by a hard affinity")
+                   .Append("\r\n").Append(byCpuSets).Append(" by a CPU Sets preference, affinity left whole");
+
+            if (unknown > 0)
+            {
+                builder.Append("\r\n\r\n").Append(unknown)
+                       .Append(unknown > 1 ? " entries have" : " entry has")
+                       .Append(" an unreadable affinity and cannot be judged either way.")
+                       .Append("\r\nRunning ProcessAffinity as administrator usually makes them readable.");
+            }
+
+            this.CPUComboBox.ToolTip = builder.ToString();
         }
 
         /// <summary>

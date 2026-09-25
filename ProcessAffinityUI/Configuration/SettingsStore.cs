@@ -30,36 +30,20 @@ namespace ProcessAffinityUI.Configuration
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         };
 
-        private static string _directoryOverride;
-
         /// <summary>
-        /// Le même dossier que les règles, sauf redirection : une seule adresse à
-        /// connaître.
+        /// Le même dossier que les règles, redirection comprise : les préférences
+        /// suivent le stockage des règles, et il n'existe qu'un seul point d'entrée
+        /// pour le déplacer, <see cref="RuleEngine.RedirectStoreTo"/>.
+        ///
+        /// Ce fichier a un temps porté sa propre redirection, ajoutée quand
+        /// <see cref="RuleStore"/> n'en avait pas encore. Deux mécanismes
+        /// équivalents ne doivent pas coexister : on peut alors en rediriger un et
+        /// pas l'autre, et une sonde croirait travailler à l'écart alors qu'elle
+        /// écrirait chez l'utilisateur.
         /// </summary>
         public static string DirectoryPath
         {
-            get
-            {
-                string redirected = _directoryOverride;
-
-                return string.IsNullOrEmpty(redirected) ? RuleStore.DirectoryPath : redirected;
-            }
-        }
-
-        /// <summary>
-        /// Déplace le fichier de préférences vers un répertoire d'essai et oublie
-        /// ce qui était chargé. Passer null rend le dossier réel.
-        ///
-        /// Réservé aux vérifications : une sonde ne doit pas écrire dans le dossier
-        /// de l'utilisateur, où vivent ses règles et ses préférences.
-        /// </summary>
-        public static void RedirectTo(string directoryPath)
-        {
-            lock (SyncRoot)
-            {
-                _directoryOverride = directoryPath;
-                _settings = null;
-            }
+            get { return RuleStore.DirectoryPath; }
         }
 
         public static string FilePath

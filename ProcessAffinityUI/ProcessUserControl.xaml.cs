@@ -971,76 +971,12 @@ namespace ProcessAffinityUI
         /// </summary>
         private void SaveConfiguration(List<Process> targets)
         {
-            int savedCount = 0;
-            List<string> unreadableNames = new List<string>();
-            List<string> refusedNames = new List<string>();
-
-            foreach (Process process in targets)
-            {
-                nuint? affinity = process.GetProcessorAffinity();
-
-                if (affinity == null)
-                {
-                    unreadableNames.Add(process.ProcessName);
-                    continue;
-                }
-
-                // Priorité lue en natif, comme le fait la mise à jour d'une règle
-                // existante : Win32_Process.Priority est figé à l'énumération, et
-                // enregistrer une priorité déjà modifiée par un tiers reviendrait
-                // à graver sa valeur d'origine, puis à la rétablir indéfiniment.
-                int priorityClass = process.GetPriorityClass()
-                                    ?? (int)Process.ToProcessPriorityEnum(process.Priority);
-
-                string error;
-
-                if (!RuleEngine.TrySave(process, affinity.Value, priorityClass, out error))
-                {
-                    refusedNames.Add(process.ProcessName);
-                    continue;
-                }
-
-                // Le processus porte désormais une règle, déjà satisfaite puisqu'elle
-                // reprend son état courant.
-                process.SetRuleState(RuleStateEnum.Applied, null);
-                savedCount++;
-            }
-
-            RefreshRuleMarkers();
-
-            ReportConfigurationOutcome("saved", savedCount, unreadableNames, refusedNames);
+            ConfigurationCommands.Save(targets);
         }
 
         private void RemoveConfiguration(List<Process> targets)
         {
-            int removedCount = 0;
-            List<string> refusedNames = new List<string>();
-
-            foreach (Process process in targets)
-            {
-                string error;
-
-                // Le retour distingue « rien à retirer » d'un échec d'écriture : sans
-                // lui, une cible sans règle serait comptée comme retirée.
-                if (!RuleEngine.TryRemove(process.ExecutablePath, out error))
-                {
-                    if (!string.IsNullOrEmpty(error))
-                    {
-                        refusedNames.Add(process.ProcessName);
-                    }
-
-                    continue;
-                }
-
-                // L'affinité et la priorité en cours ne sont pas touchées : retirer
-                // la règle cesse de la réappliquer, cela ne remet rien en arrière.
-                process.SetRuleState(RuleStateEnum.None, null);
-                removedCount++;
-            }
-
-            RefreshRuleMarkers();
-
-            ReportConfigurationOutcome("removed", removedCount, new List<string>(), refusedNames);
+            ConfigurationCommands.Remove(targets);
         }
 
         /// <summary>
@@ -1056,70 +992,7 @@ namespace ProcessAffinityUI
                 targets.Add(this._process);
             }
 
-            return targets.Where(p => RuleEngine.HasRule(p.ExecutablePath)).ToList();
-        }
-
-        /// <summary>
-        /// Repeint les bandeaux de toutes les tuiles du panneau : une action sur
-        /// une sélection change l'état d'entrées dont la tuile n'est pas celle
-        /// qu'on a cliquée. Le relevé suivant les corrigerait de toute façon,
-        /// mais une seconde d'écart sur un marquage se remarque.
-        /// </summary>
-        private static void RefreshRuleMarkers()
-        {
-            Action refresh = RuleMarkersChanged;
-
-            if (refresh != null)
-            {
-                refresh();
-            }
-        }
-
-        /// <summary>Posé par la fenêtre principale, seule à connaître le panneau.</summary>
-        public static Action RuleMarkersChanged { get; set; }
-
-        private void ReportConfigurationOutcome(
-            string verb, int count, List<string> unreadableNames, List<string> refusedNames)
-        {
-            StringBuilder builder = new StringBuilder();
-
-            builder.Append("Configuration ").Append(verb).Append(" for ").Append(count)
-                   .Append(count == 1 ? " process." : " processes.");
-
-            if (string.Equals(verb, "saved", StringComparison.Ordinal) && count > 0)
-            {
-                builder.Append("\r\n\r\nIt will be applied at every start, and when ProcessAffinity loads.")
-                       .Append("\r\n\r\n").Append(RuleEngine.FilePath);
-            }
-
-            AppendNames(builder, unreadableNames,
-                "affinity could not be read, so there was nothing to save");
-
-            AppendNames(builder, refusedNames,
-                "could not be saved — critical process, service entry, or unknown executable path");
-
-            MessageBox.Show(builder.ToString(), ApplicationName,
-                MessageBoxButton.OK,
-                unreadableNames.Count + refusedNames.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
-        }
-
-        private static void AppendNames(StringBuilder builder, List<string> names, string reason)
-        {
-            if (names == null || names.Count == 0)
-            {
-                return;
-            }
-
-            const int maximumListed = 15;
-
-            builder.Append("\r\n\r\n").Append(names.Count)
-                   .Append(names.Count == 1 ? " process: " : " processes: ").Append(reason).Append("\r\n")
-                   .Append(string.Join(", ", names.Take(maximumListed)));
-
-            if (names.Count > maximumListed)
-            {
-                builder.Append(", and ").Append(names.Count - maximumListed).Append(" more");
-            }
+            return ConfigurationCommands.GetRuledTargets(targets);
         }
 
         /// <summary>
