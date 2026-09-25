@@ -36,6 +36,27 @@ namespace ProcessAffinityUI.Configuration
             get { return RuleStore.FilePath; }
         }
 
+        /// <summary>
+        /// Redirige le stockage des règles vers un répertoire d'essai et vide le
+        /// cache, pour que la redirection prenne effet même si des règles ont déjà
+        /// été chargées. Passer null rend le dossier réel.
+        ///
+        /// Seul point d'entrée des sondes : aucune vérification ne doit écrire ni
+        /// supprimer dans <c>%APPDATA%\ProcessAffinity</c>, qui contient la
+        /// configuration de l'utilisateur.
+        /// </summary>
+        public static void RedirectStoreTo(string directoryPath)
+        {
+            lock (SyncRoot)
+            {
+                RuleStore.RedirectTo(directoryPath);
+
+                _rulesByPath = new Dictionary<string, ProcessRule>(StringComparer.OrdinalIgnoreCase);
+                _loaded = false;
+                LoadError = null;
+            }
+        }
+
         public static void EnsureLoaded()
         {
             lock (SyncRoot)
@@ -119,12 +140,31 @@ namespace ProcessAffinityUI.Configuration
         /// </summary>
         public static bool TrySave(Process process, nuint affinityMask, int priorityClass, out string error)
         {
+            ProcessRule rule = BuildCandidateRule(process, affinityMask, priorityClass, out error);
+
+            return rule != null && TryStore(rule, out error);
+        }
+
+        /// <summary>
+        /// Construit la règle que <see cref="TrySave"/> écrirait, sans rien écrire.
+        /// Null si le processus n'est pas éligible, <paramref name="error"/> disant
+        /// pourquoi.
+        ///
+        /// Séparer la construction de l'écriture permet de comparer ce qui serait
+        /// enregistré pour plusieurs instances d'un même exécutable, avant de
+        /// décider laquelle retenir. Comparer autre chose que cet objet risquerait
+        /// de tenir pour identiques deux configurations qui ne le seraient pas une
+        /// fois écrites.
+        /// </summary>
+        internal static ProcessRule BuildCandidateRule(
+            Process process, nuint affinityMask, int priorityClass, out string error)
+        {
             error = null;
 
             if (process == null)
             {
                 error = "No process.";
-                return false;
+                return null;
             }
 
             if (process.IsCriticalSystemProcess)
@@ -132,14 +172,14 @@ namespace ProcessAffinityUI.Configuration
                 error = "\"" + process.ProcessName + "\" is a critical system process.\r\n\r\n"
                         + "Forcing its affinity or priority at every start could make Windows unusable. "
                         + "Saving a rule for it is not allowed.";
-                return false;
+                return null;
             }
 
             if (process.IsService)
             {
                 error = "A rule applies to an executable, not to a service entry.\r\n\r\n"
                         + "Save the rule on its host process instead.";
-                return false;
+                return null;
             }
 
             if (string.IsNullOrEmpty(process.ExecutablePath))
@@ -147,7 +187,7 @@ namespace ProcessAffinityUI.Configuration
                 error = "The executable path of \"" + process.ProcessName + "\" is unknown, "
                         + "so there is nothing to attach a rule to.\r\n\r\n"
                         + "Running ProcessAffinity as administrator usually makes it readable.";
-                return false;
+                return null;
             }
 
             nuint restricted = RestrictToExistingProcessors(affinityMask);
@@ -155,10 +195,8 @@ namespace ProcessAffinityUI.Configuration
             if (restricted == 0)
             {
                 error = "The selected affinity covers no processor of this machine.";
-                return false;
+                return null;
             }
-
-            EnsureLoaded();
 
             ProcessRule rule = new ProcessRule
             {
@@ -173,13 +211,41 @@ namespace ProcessAffinityUI.Configuration
             // enregistre ce qu'on voit.
             CaptureSchedulingSettings(process, rule);
 
+            return rule;
+        }
+
+        /// <summary>Écrit une règle déjà construite.</summary>
+        internal static bool TryStore(ProcessRule rule, out string error)
+        {
+            error = null;
+
+            if (rule == null)
+            {
+                error = "No rule.";
+                return false;
+            }
+
+            EnsureLoaded();
+
             lock (SyncRoot)
             {
+                ProcessRule previous;
+                bool hadPrevious = _rulesByPath.TryGetValue(rule.ExecutablePath, out previous);
+
                 _rulesByPath[rule.ExecutablePath] = rule;
 
                 if (!RuleStore.TrySave(_rulesByPath.Values, out error))
                 {
-                    _rulesByPath.Remove(rule.ExecutablePath);
+                    // Remettre ce qui s'y trouvait : une écriture refusée ne doit
+                    // pas laisser la carte en mémoire en avance sur le fichier.
+                    if (hadPrevious)
+                    {
+                        _rulesByPath[rule.ExecutablePath] = previous;
+                    }
+                    else
+                    {
+                        _rulesByPath.Remove(rule.ExecutablePath);
+                    }
 
                     return false;
                 }
@@ -244,16 +310,30 @@ namespace ProcessAffinityUI.Configuration
                 return;
             }
 
+            rule.CpuSetProcessors = GetCpuSetProcessors(process);
+        }
+
+        /// <summary>
+        /// Les CPU Sets d'un processus, en numéros de processeur logique — les
+        /// identifiants sont opaques et propres à une machine. Null quand ils sont
+        /// illisibles ou que la machine ne les gère pas, ce qui ne se confond pas
+        /// avec un tableau vide, lequel signifie « aucune préférence ».
+        /// </summary>
+        internal static int[] GetCpuSetProcessors(Process process)
+        {
+            if (process == null || !ProcessPowerThrottling.AreCpuSetsSupported)
+            {
+                return null;
+            }
+
             uint[] cpuSets = process.GetDefaultCpuSets();
             SystemCpuSets.LogicalProcessor[] topology = SystemCpuSets.TryGet();
 
             if (cpuSets == null || topology == null)
             {
-                return;
+                return null;
             }
 
-            // Stockés en numéros de processeur logique : les identifiants sont
-            // opaques et propres à une machine, un fichier de règles ne l'est pas.
             List<int> processors = new List<int>();
 
             foreach (SystemCpuSets.LogicalProcessor processor in topology)
@@ -264,7 +344,7 @@ namespace ProcessAffinityUI.Configuration
                 }
             }
 
-            rule.CpuSetProcessors = processors.ToArray();
+            return processors.ToArray();
         }
 
         /// <summary>
@@ -592,12 +672,12 @@ namespace ProcessAffinityUI.Configuration
             return true;
         }
 
-        private static string DescribeCpuSetCount(int count)
+        internal static string DescribeCpuSetCount(int count)
         {
             return count == 0 ? "no preference" : count + (count > 1 ? " processors" : " processor");
         }
 
-        private static string DescribeEfficiencyMode(int mode)
+        internal static string DescribeEfficiencyMode(int mode)
         {
             switch ((EfficiencyModeEnum)mode)
             {
@@ -610,7 +690,7 @@ namespace ProcessAffinityUI.Configuration
             }
         }
 
-        private static string DescribeMask(nuint mask)
+        internal static string DescribeMask(nuint mask)
         {
             return "0x" + ((ulong)mask).ToString("X") + " (" + System.Numerics.BitOperations.PopCount((ulong)mask) + " cores)";
         }
@@ -620,7 +700,7 @@ namespace ProcessAffinityUI.Configuration
         /// « Unknown = Normal », si bien que ToString() rend « Unknown » pour la
         /// priorité normale — trompeur dans un message destiné à l'utilisateur.
         /// </summary>
-        private static string DescribePriority(int priorityClass)
+        internal static string DescribePriority(int priorityClass)
         {
             switch (priorityClass)
             {
