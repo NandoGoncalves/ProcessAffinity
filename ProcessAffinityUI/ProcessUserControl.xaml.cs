@@ -88,6 +88,17 @@ namespace ProcessAffinityUI
         public static bool IsDisplaySuspended { get; set; }
 
         /// <summary>
+        /// Ce que les tuiles tracent. Posé par les cases de la barre du haut, donc
+        /// global comme la suspension d'affichage : il n'y a qu'une fenêtre.
+        ///
+        /// L'historique continue d'être décalé en mémoire dans les deux cas : une
+        /// courbe rallumée doit repartir continue, et non d'un trou.
+        /// </summary>
+        public static bool AreCpuBarsShown { get; set; } = true;
+
+        public static bool AreMemoryBarsShown { get; set; } = false;
+
+        /// <summary>
         /// Historique glissant, du plus récent au plus ancien. Il vit ici et non
         /// dans les étiquettes : c'est ce qui permet de continuer à le décaler
         /// quand l'affichage est suspendu, et de retrouver une courbe continue
@@ -109,7 +120,13 @@ namespace ProcessAffinityUI
         private readonly double[] _memoryBarHeights = new double[CPUUsageBarCount];
         private long _memoryBytes;
 
-        private static readonly Brush MemoryBarBrush = CreateFrozenBrush(Color.FromRgb(0x4A, 0x4A, 0x4A));
+        /// <summary>
+        /// À peine plus foncé que le fond de la tuile, qui est LightGray
+        /// (#D3D3D3). Les barres de mémoire sont un arrière-plan : elles doivent
+        /// se lire sans disputer la lecture aux barres de CPU, qui passent devant
+        /// et portent l'information vive.
+        /// </summary>
+        private static readonly Brush MemoryBarBrush = CreateFrozenBrush(Color.FromRgb(0xBD, 0xBD, 0xBD));
 
         private static Brush CreateFrozenBrush(Color color)
         {
@@ -582,15 +599,21 @@ namespace ProcessAffinityUI
                 Label[] bars = GetBars();
                 Label[] memoryBars = GetMemoryBars();
 
+                bool showCpu = AreCpuBarsShown;
+                bool showMemory = AreMemoryBarsShown;
+
                 // Les deux courbes sont peintes dans la même boucle, donc dans la
                 // même opération postée : la mémoire n'ajoute rien au nombre
                 // d'allers-retours sur le dispatcher, qui est d'un par tuile et
                 // par relevé.
                 for (int i = 0; i < CPUUsageBarCount; i++)
                 {
-                    double memoryHeight = this._memoryBarHeights[i];
+                    // Une barre éteinte est ramenée à zéro plutôt que masquée :
+                    // c'est la même écriture que pour la peindre, et cela évite de
+                    // faire varier le nombre d'éléments visibles à chaque bascule.
+                    double memoryHeight = showMemory ? this._memoryBarHeights[i] : 0d;
 
-                    if (memoryHeight > 0d)
+                    if (memoryHeight > 0d || memoryBars[i].Height > 0d)
                     {
                         memoryBars[i].Height = memoryHeight;
                         memoryBars[i].Background = MemoryBarBrush;
@@ -603,11 +626,11 @@ namespace ProcessAffinityUI
                         continue;
                     }
 
-                    bars[i].Height = this._barHeights[i];
+                    bars[i].Height = showCpu ? this._barHeights[i] : 0d;
                     bars[i].Background = brush;
                 }
 
-                this.MemoryGaugeFill.Height = this._memoryBarHeights[0];
+                this.MemoryGaugeFill.Height = showMemory ? this._memoryBarHeights[0] : 0d;
                 this.CPUUsageValueTextBlock.Text = this._displayedValue;
                 this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
 

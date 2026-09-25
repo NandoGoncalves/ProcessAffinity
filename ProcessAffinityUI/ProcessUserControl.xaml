@@ -37,8 +37,14 @@
         <!-- Jauge verticale sur le bord gauche, remplie de haut en bas. Elle reste
              lisible quand les barres de CPU occupent toute la largeur et masquent
              complètement celles de la mémoire. -->
-        <Rectangle Name="MemoryGaugeTrack" Width="3" Height="56" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,0,0" Fill="#FFE4E4E4" IsHitTestVisible="False" />
-        <Rectangle Name="MemoryGaugeFill" Width="3" Height="0" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,0,0" Fill="#FF4A4A4A" IsHitTestVisible="False" />
+        <!-- Rail transparent : une jauge vide ne doit rien dessiner, sans quoi
+             elle poserait une bande claire sur chaque tuile. Il ne sert qu'à
+             fixer la hauteur de référence. -->
+        <Rectangle Name="MemoryGaugeTrack" Width="3" Height="56" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,0,0" Fill="Transparent" IsHitTestVisible="False" />
+        <!-- Plus soutenu que les barres : trois pixels de large disparaîtraient
+             au ton de l'arrière-plan, et c'est précisément quand les barres de
+             CPU masquent tout que cette jauge doit rester lisible. -->
+        <Rectangle Name="MemoryGaugeFill" Width="3" Height="0" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,0,0,0" Fill="#FF8C8C8C" IsHitTestVisible="False" />
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel0" TabIndex="0" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="83,0,3,21" />
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel1" TabIndex="1" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="81,0,10,0" />
         <Label Height="56" HorizontalAlignment="Center" Name="CPUUsagelabel2" TabIndex="2" VerticalAlignment="top" Width="5" HorizontalContentAlignment="Center" VerticalContentAlignment="Top" FontSize="4" MinWidth="0.2" Opacity="1" FontWeight="Bold" MouseEnter="CPUUsagelabel_MouseEnter" Margin="76,0,15,0" />

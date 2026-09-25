@@ -1850,6 +1850,28 @@ namespace ProcessAffinityUI
             this.UnsubscribeProcessEventHandlers(this._services);
         }
 
+        /// <summary>
+        /// Bascule des deux courbes. Rien n'est reconstruit : les tuiles existent
+        /// déjà et leur historique n'a pas cessé de glisser, il suffit de les
+        /// repeindre.
+        /// </summary>
+        private void BarsCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
+        {
+            // La case CPU porte IsChecked="True" dans le XAML, ce qui lève Checked
+            // pendant le chargement — avant que la seconde case n'existe. Sans ce
+            // garde, l'application tombait sur une NullReferenceException au
+            // démarrage, avant même d'afficher sa fenêtre.
+            if (this.ShowCpuBarsCheckBox == null || this.ShowMemoryBarsCheckBox == null)
+            {
+                return;
+            }
+
+            ProcessUserControl.AreCpuBarsShown = this.ShowCpuBarsCheckBox.IsChecked == true;
+            ProcessUserControl.AreMemoryBarsShown = this.ShowMemoryBarsCheckBox.IsChecked == true;
+
+            this.RefreshProcessUserControlsDisplay();
+        }
+
         private void ShowServicesCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
         {
             if (this._processes != null)
