@@ -391,7 +391,8 @@ namespace ProcessAffinityUI.Threading
                 }
             }
 
-            Process.MaximumMemoryBytes = maximumMemory;
+            // Montée immédiate, descente par paliers : voir UpdateMaximumMemoryBytes.
+            Process.UpdateMaximumMemoryBytes(maximumMemory);
 
             foreach (Process process in processes)
             {

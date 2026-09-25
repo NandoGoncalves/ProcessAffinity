@@ -114,10 +114,18 @@ namespace ProcessAffinityUI
 
         /// <summary>
         /// Historique de la mémoire, décalé dans la même passe que celui du CPU.
+        ///
+        /// En octets, et non en hauteurs : l'échelle est le plus gros consommateur
+        /// du relevé, et elle change à chaque seconde. Un historique de hauteurs
+        /// mélangerait dix-sept échelles, et la disparition du plus gros processus
+        /// ferait bondir les barres déjà tracées sans qu'aucune consommation n'ait
+        /// bougé. Converti au moment de peindre, l'historique entier se remet à
+        /// l'échelle d'un seul mouvement.
+        ///
         /// Un seul pinceau suffit, partagé par toutes les tuiles : les barres ne
         /// portent aucune information par la teinte, seulement par la hauteur.
         /// </summary>
-        private readonly double[] _memoryBarHeights = new double[CPUUsageBarCount];
+        private readonly long[] _memoryBytesHistory = new long[CPUUsageBarCount];
         private long _memoryBytes;
 
         /// <summary>
@@ -463,11 +471,13 @@ namespace ProcessAffinityUI
         /// consommateur du relevé. Rapporter à la mémoire physique donnerait une
         /// barre invisible pour la quasi-totalité des processus : à 32 Go, un
         /// navigateur à 500 Mo occuperait un pixel et demi.
+        ///
+        /// L'échelle est passée en argument et non relue ici : tout l'historique
+        /// d'une tuile doit être converti avec la même, et la relire par barre
+        /// rendrait dix-sept lectures volatiles pour rien.
         /// </summary>
-        private static double GetMemoryBarHeight(long memoryBytes)
+        private static double GetMemoryBarHeight(long memoryBytes, long maximum)
         {
-            long maximum = Threading.Process.MaximumMemoryBytes;
-
             if (memoryBytes <= 0 || maximum <= 0)
             {
                 return 0d;
@@ -566,7 +576,7 @@ namespace ProcessAffinityUI
             {
                 this._barHeights[i] = this._barHeights[i - 1];
                 this._barBrushes[i] = this._barBrushes[i - 1];
-                this._memoryBarHeights[i] = this._memoryBarHeights[i - 1];
+                this._memoryBytesHistory[i] = this._memoryBytesHistory[i - 1];
             }
 
             this._barHeights[0] = (CPUUsageBarHeight * singleCoreUsage) / 100d;
@@ -576,7 +586,7 @@ namespace ProcessAffinityUI
             // La mémoire est déjà posée sur le processus par le même relevé : elle
             // se lit ici sans appel système ni opération postée supplémentaires.
             this._memoryBytes = this._process == null ? 0L : this._process.MemoryBytes;
-            this._memoryBarHeights[0] = GetMemoryBarHeight(this._memoryBytes);
+            this._memoryBytesHistory[0] = this._memoryBytes;
 
             if (IsDisplaySuspended)
             {
@@ -602,6 +612,11 @@ namespace ProcessAffinityUI
                 bool showCpu = AreCpuBarsShown;
                 bool showMemory = AreMemoryBarsShown;
 
+                // Une seule lecture de l'échelle pour toute la tuile : l'historique
+                // entier se convertit avec la même, sans quoi la courbe mélangerait
+                // de nouveau des échelles différentes.
+                long memoryScale = showMemory ? Threading.Process.MaximumMemoryBytes : 0L;
+
                 // Les deux courbes sont peintes dans la même boucle, donc dans la
                 // même opération postée : la mémoire n'ajoute rien au nombre
                 // d'allers-retours sur le dispatcher, qui est d'un par tuile et
@@ -611,7 +626,9 @@ namespace ProcessAffinityUI
                     // Une barre éteinte est ramenée à zéro plutôt que masquée :
                     // c'est la même écriture que pour la peindre, et cela évite de
                     // faire varier le nombre d'éléments visibles à chaque bascule.
-                    double memoryHeight = showMemory ? this._memoryBarHeights[i] : 0d;
+                    double memoryHeight = showMemory
+                        ? GetMemoryBarHeight(this._memoryBytesHistory[i], memoryScale)
+                        : 0d;
 
                     if (memoryHeight > 0d || memoryBars[i].Height > 0d)
                     {
@@ -630,7 +647,9 @@ namespace ProcessAffinityUI
                     bars[i].Background = brush;
                 }
 
-                this.MemoryGaugeFill.Height = showMemory ? this._memoryBarHeights[0] : 0d;
+                this.MemoryGaugeFill.Height = showMemory
+                    ? GetMemoryBarHeight(this._memoryBytesHistory[0], memoryScale)
+                    : 0d;
                 this.CPUUsageValueTextBlock.Text = this._displayedValue;
                 this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
 

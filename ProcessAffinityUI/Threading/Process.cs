@@ -431,6 +431,50 @@ namespace ProcessAffinityUI.Threading
 
         private static long _maximumMemoryBytes;
 
+        /// <summary>
+        /// Part dont l'échelle peut au plus décroître d'un relevé au suivant.
+        /// Un dixième : une chute de moitié se résorbe en sept secondes, assez
+        /// vite pour que l'échelle reste vraie, assez lentement pour qu'aucun saut
+        /// ne se voie.
+        /// </summary>
+        private const int MaximumMemoryDecayDivisor = 10;
+
+        /// <summary>
+        /// Met l'échelle à jour depuis le plus gros consommateur observé.
+        ///
+        /// Elle monte aussitôt — sans quoi la barre du plus gros dépasserait son
+        /// cadre — mais ne redescend que par paliers. Mesuré sur trois minutes :
+        /// l'échelle ne bouge pas la plupart des secondes, mais franchit 5 % une
+        /// fois sur vingt-cinq et a sauté de 32 % une fois. Chacun de ces sauts
+        /// déplaçait d'un coup toutes les barres de toutes les tuiles, sans
+        /// qu'aucune consommation n'ait changé : c'est un mouvement sans cause,
+        /// et c'est précisément ce qu'une jauge ne doit pas montrer.
+        /// </summary>
+        internal static void UpdateMaximumMemoryBytes(long observedMaximum)
+        {
+            long current = MaximumMemoryBytes;
+
+            if (observedMaximum >= current)
+            {
+                MaximumMemoryBytes = observedMaximum;
+
+                return;
+            }
+
+            long step = current / MaximumMemoryDecayDivisor;
+
+            if (step < 1)
+            {
+                step = 1;
+            }
+
+            long floor = current - step;
+
+            // Jamais en dessous du maximum réellement observé : l'échelle peut
+            // retarder, elle ne doit pas mentir dans l'autre sens.
+            MaximumMemoryBytes = observedMaximum > floor ? observedMaximum : floor;
+        }
+
         internal void UpdateCPUUsage(
             long createTime, long totalProcessorTime, long timestamp, long activitySignature, long memoryBytes)
         {
