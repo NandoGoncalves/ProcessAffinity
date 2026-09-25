@@ -54,6 +54,12 @@ namespace ProcessAffinityUI.Configuration
                 _rulesByPath = new Dictionary<string, ProcessRule>(StringComparer.OrdinalIgnoreCase);
                 _loaded = false;
                 LoadError = null;
+
+                // Les préférences vivent dans le même dossier et suivent donc la
+                // redirection : leur cache doit être vidé ici, faute de quoi des
+                // préférences lues du dossier réel resteraient servies de mémoire,
+                // puis réécrites dans le répertoire d'essai.
+                SettingsStore.Reload();
             }
         }
 

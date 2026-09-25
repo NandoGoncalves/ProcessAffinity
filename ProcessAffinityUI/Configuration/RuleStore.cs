@@ -36,6 +36,14 @@ namespace ProcessAffinityUI.Configuration
         /// </summary>
         private static int _lastLoadedFormatVersion;
 
+        /// <summary>
+        /// Dossier de substitution, ou null pour le dossier réel. Posé uniquement
+        /// par les sondes de vérification : le fichier de règles de l'utilisateur
+        /// est sa configuration, pas un bac à sable, et une sonde qui l'écrase ne
+        /// le protège que si personne n'oublie de le restaurer.
+        /// </summary>
+        private static string _directoryOverride;
+
         private static readonly JsonSerializerOptions SerializerOptions = new JsonSerializerOptions
         {
             WriteIndented = true,
@@ -47,14 +55,6 @@ namespace ProcessAffinityUI.Configuration
             // des CPU Sets reste litteralement une regle de version 1.
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         };
-
-        /// <summary>
-        /// Dossier de substitution, ou null pour le dossier réel. Posé uniquement
-        /// par les sondes de vérification : le fichier de règles de l'utilisateur
-        /// est sa configuration, pas un bac à sable, et une sonde qui l'écrase ne
-        /// le protège que si personne n'oublie de le restaurer.
-        /// </summary>
-        private static string _directoryOverride;
 
         public static string DirectoryPath
         {
