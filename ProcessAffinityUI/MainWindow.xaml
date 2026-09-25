@@ -14,7 +14,11 @@
                         <DockPanel HorizontalAlignment="Stretch" LastChildFill="False" />
                     </ItemsPanelTemplate>
                 </Menu.ItemsPanel>
-                <MenuItem Header="?" DockPanel.Dock="Right" Name="HelpMenuItem">
+                <!-- Marge droite de 31 px : les trois commandes de coin — « Load »,
+                     « ? » et « Close » — tombent sur le même bord. Load en est la
+                     référence, avec sa marge de 30 px plus le pixel de bordure de
+                     son cadre ; le menu n'a pas de cadre, d'où les 31 ici. -->
+                <MenuItem Header="?" DockPanel.Dock="Right" Name="HelpMenuItem" Margin="0,0,31,0">
                     <MenuItem Header="_About ProcessAffinity…" Name="AboutMenuItem" Click="AboutMenuItem_Click" />
                 </MenuItem>
             </Menu>
@@ -55,7 +59,7 @@
                      marge absolue : il reste au coin quelle que soit la largeur. -->
                 <DockPanel LastChildFill="True">
                 <Button Content="Close" DockPanel.Dock="Right" Name="CloseButton" Width="75" Height="22"
-                        Margin="6,0,8,0" VerticalAlignment="Center" Click="CloseButton_Click" TabIndex="8" />
+                        Margin="6,0,30,0" VerticalAlignment="Center" Click="CloseButton_Click" TabIndex="8" />
                 <TextBlock Foreground="Black" Height="45"><InlineUIContainer>
                 		<ComboBox x:Name="CPUComboBox" Height="30" Width="50" RenderTransformOrigin="0.625,2.314" FontSize="8"  />
                 	</InlineUIContainer>
