@@ -219,7 +219,6 @@ namespace ProcessAffinityUI
         {
             if (processes == null)
             {
-                SetEventsSubscriptionsIndicator();
                 return;
             }
 
@@ -234,30 +233,21 @@ namespace ProcessAffinityUI
 
             processes.ProcessModified -= Processes_ProcessModified;
             processes.ProcessModified += Processes_ProcessModified;
-
-            SetEventsSubscriptionsIndicator();
         }
 
         /// <summary>
         /// Compte les abonnés réellement portés par l'instance courante, et non
         /// les méthodes référencées par les champs de la fenêtre : l'indicateur
         /// affichait 1-1-1-1 alors que l'instance n'en portait aucun. Il détecte
-        /// désormais aussi bien la perte que le double abonnement.
+        /// aussi bien la perte que le double abonnement.
+        ///
+        /// Ces quatre nombres n'apprennent rien à qui se sert de l'application ;
+        /// ils sont présentés dans la fenêtre « About », avec ce qu'ils comptent,
+        /// et non plus dans une barre où la place manque.
         /// </summary>
-        private void SetEventsSubscriptionsIndicator()
+        private int[] GetEventSubscriptionCounts()
         {
-            if (this._processes == null)
-            {
-                EventsSubscritionsLabel.Content = "Evt:- New:- Del:- Mod:-";
-                return;
-            }
-
-            // Chaque nombre précédé de ce qu'il désigne : « 1-1-1-1 » n'était
-            // lisible que pour qui connaissait l'ordre des quatre événements.
-            int[] counts = this._processes.GetEventSubscriberCounts();
-
-            EventsSubscritionsLabel.Content =
-                "Evt:" + counts[0] + " New:" + counts[1] + " Del:" + counts[2] + " Mod:" + counts[3];
+            return this._processes == null ? null : this._processes.GetEventSubscriberCounts();
         }
 
         private void UnsubscribeProcessEventHandlers()
@@ -276,8 +266,6 @@ namespace ProcessAffinityUI
                 processes.ProcessCreated -= Processes_ProcessCreated;
                 processes.ProcessDeleted -= Processes_ProcessDeleted;
                 processes.ProcessModified -= Processes_ProcessModified;
-
-                SetEventsSubscriptionsIndicator();
 
         }
 
@@ -368,14 +356,27 @@ namespace ProcessAffinityUI
                 ? 0
                 : entries.Count(entry => entry.IsService);
 
-            int hiddenByCore = this.processWrapPanel.Children.OfType<ProcessUserControl>()
-                                   .Count(child => child.Visibility != Visibility.Visible);
+            // Chaque tuile masquée est imputée au filtre qui l'écarte, et non
+            // globalement à celui du cœur : avec trois filtres, un total indistinct
+            // ne dirait plus lequel cache quoi.
+            List<ProcessUserControl> tiles =
+                this.processWrapPanel.Children.OfType<ProcessUserControl>().ToList();
 
-            int unaccounted = total - hiddenServices - hiddenByCore - visible;
+            int hiddenByName = tiles.Count(child => GetHiddenReason(child) == HiddenReason.Name);
+            int hiddenByCore = tiles.Count(child => GetHiddenReason(child) == HiddenReason.Core);
+
+            int unaccounted = total - hiddenServices - hiddenByName - hiddenByCore - visible;
 
             StringBuilder builder = new StringBuilder();
 
             builder.Append(total).Append(total > 1 ? " entries in total." : " entry in total.");
+
+            if (hiddenByName > 0)
+            {
+                builder.Append("\r\n").Append(hiddenByName)
+                       .Append(" hidden by the name filter \"")
+                       .Append(this._nameFilter).Append("\".");
+            }
 
             if (hiddenByCore > 0)
             {
@@ -457,16 +458,40 @@ namespace ProcessAffinityUI
             }
         }
 
-        private void SetProcessUserControlVisibility(ProcessUserControl processUserControl)
+        /// <summary>
+        /// Ce qui écarte une tuile de l'affichage, ou <see cref="HiddenReason.None"/>
+        /// quand rien ne l'écarte. Les motifs sont distingués pour que la
+        /// ventilation du compteur puisse imputer chaque tuile manquante au bon
+        /// filtre, et non les confondre toutes dans celui du cœur.
+        /// </summary>
+        private enum HiddenReason
         {
+            None,
+            Name,
+            Core,
+        }
+
+        private HiddenReason GetHiddenReason(ProcessUserControl processUserControl)
+        {
+            if (processUserControl == null || processUserControl.Process == null)
+            {
+                return HiddenReason.None;
+            }
+
+            // Le filtre de nom d'abord : c'est le geste le plus récent de
+            // l'utilisateur, et celui auquel il attribuera l'absence d'une tuile.
+            if (!MatchesNameFilter(processUserControl.Process))
+            {
+                return HiddenReason.Name;
+            }
+
             object selectedValue = CPUComboBox.SelectedValue;
 
-            // Sélection nulle pendant une reconstruction de la liste : aucun
-            // filtre ne s'applique.
+            // Sélection nulle pendant une reconstruction de la liste : le filtre
+            // par cœur ne s'applique pas.
             if (selectedValue == null || selectedValue.ToString() == "ALL")
             {
-                processUserControl.Visibility = Visibility.Visible;
-                return;
+                return HiddenReason.None;
             }
 
             // Les cœurs occupent les indices 0 à N-1, « ALL » étant ajouté en
@@ -480,8 +505,7 @@ namespace ProcessAffinityUI
                 // Affinité illisible : on ne sait pas sur quels cœurs le
                 // processus tourne. L'exclure du filtre reviendrait à affirmer
                 // qu'il n'en utilise aucun.
-                processUserControl.Visibility = Visibility.Visible;
-                return;
+                return HiddenReason.None;
             }
 
             // Test direct du bit. Passer par la chaîne de ToBinary inversait
@@ -492,7 +516,74 @@ namespace ProcessAffinityUI
                 && coreNumber < IntPtr.Size * 8
                 && (processorAffinity.Value & ((nuint)1 << coreNumber)) != 0;
 
-            processUserControl.Visibility = runsOnSelectedCore ? Visibility.Visible : Visibility.Collapsed;
+            return runsOnSelectedCore ? HiddenReason.None : HiddenReason.Core;
+        }
+
+        /// <summary>
+        /// Filtre par fragment, sans distinction de casse : saisir « affi » montre
+        /// « ProcessAffinity », où le fragment n'est pas en tête. Un filtre vide
+        /// laisse tout passer.
+        /// </summary>
+        private bool MatchesNameFilter(Process process)
+        {
+            string filter = this._nameFilter;
+
+            if (string.IsNullOrEmpty(filter))
+            {
+                return true;
+            }
+
+            string name = process.ProcessName;
+
+            return name != null && name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void SetProcessUserControlVisibility(ProcessUserControl processUserControl)
+        {
+            processUserControl.Visibility = GetHiddenReason(processUserControl) == HiddenReason.None
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// Texte du filtre, mémorisé hors du contrôle : il est lu depuis la boucle
+        /// de visibilité, appelée pour chaque tuile à chaque relevé.
+        /// </summary>
+        private string _nameFilter = string.Empty;
+
+        private void NameFilterTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            // Rafraîchissement à la frappe : aucun bouton à valider.
+            this._nameFilter = this.NameFilterTextBox.Text == null
+                ? string.Empty
+                : this.NameFilterTextBox.Text.Trim();
+
+            this.ClearNameFilterButton.Visibility = this._nameFilter.Length == 0
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+
+            this.RefreshProcessUserControlsVisibility();
+        }
+
+        private void ClearNameFilterButton_Click(object sender, RoutedEventArgs e)
+        {
+            this.NameFilterTextBox.Text = string.Empty;
+            this.NameFilterTextBox.Focus();
+        }
+
+        /// <summary>
+        /// Réapplique les filtres à toutes les tuiles, sans toucher aux couleurs ni
+        /// aux courbes : le filtre ne change que ce qui est montré.
+        /// </summary>
+        private void RefreshProcessUserControlsVisibility()
+        {
+            foreach (ProcessUserControl processUserControl in
+                     this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                SetProcessUserControlVisibility(processUserControl);
+            }
+
+            SetCounters();
         }
 
         private void ProcessWrapPanel_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -1012,6 +1103,16 @@ namespace ProcessAffinityUI
             }
 
             this.processWrapPanel.Children.Insert(index, processUserControl);
+
+            // Les filtres s'appliquent aussi à ce qui apparaît après le
+            // chargement. Sans cela, une application lancée pendant qu'un filtre
+            // est posé s'affichait quand même : la tuile naissait visible, et rien
+            // ne la soumettait au filtre avant le relevé suivant.
+            SetProcessUserControlVisibility(processUserControl);
+
+            // Et le compteur doit suivre : la tuile compte pour le total, et pour
+            // l'affichage seulement si elle passe les filtres.
+            SetCounters();
         }
 
         private void ModifyProcessUserControl(Process process)
@@ -1267,6 +1368,70 @@ namespace ProcessAffinityUI
             Version version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
 
             return version == null ? string.Empty : version.ToString(3);
+        }
+
+        /// <summary>
+        /// Demande, plutôt que de décider. L'application applique des règles tant
+        /// qu'elle tourne : quitter et ranger dans la zone de notification n'ont
+        /// pas les mêmes conséquences, et le bouton les confondait.
+        ///
+        /// La croix de la barre de titre ne passe pas par ici et garde son
+        /// comportement : elle quitte.
+        /// </summary>
+        private void CloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            CloseChoice? remembered = SettingsStore.GetRememberedCloseChoice();
+
+            if (remembered != null)
+            {
+                ApplyCloseChoice(remembered.Value);
+                return;
+            }
+
+            CloseConfirmationWindow confirmation = new CloseConfirmationWindow();
+            confirmation.Owner = this;
+
+            confirmation.ShowDialog();
+
+            if (confirmation.ShouldRemember)
+            {
+                string error;
+
+                if (!SettingsStore.TryRememberCloseChoice(confirmation.Choice, out error))
+                {
+                    // Ne pas laisser croire qu'on se souviendra d'un choix qui n'a
+                    // pas pu être écrit : la question reviendrait sans explication.
+                    MessageBox.Show(
+                        error + "\r\n\r\nThe question will be asked again next time.",
+                        "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+
+            ApplyCloseChoice(confirmation.Choice);
+        }
+
+        private void ApplyCloseChoice(CloseChoice choice)
+        {
+            switch (choice)
+            {
+                case CloseChoice.Exit:
+                    this.Close();
+                    break;
+
+                case CloseChoice.Minimize:
+                    // Le même chemin que la réduction ordinaire : WindowStateChanged
+                    // se charge de l'icône et de l'arrêt de l'affichage.
+                    this.WindowState = WindowState.Minimized;
+                    break;
+            }
+        }
+
+        private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            AboutWindow aboutWindow = new AboutWindow(this.GetEventSubscriptionCounts());
+
+            aboutWindow.Owner = this;
+            aboutWindow.ShowDialog();
         }
 
         private void WindowClosing(object sender, System.ComponentModel.CancelEventArgs e)

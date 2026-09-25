@@ -5,6 +5,19 @@
 
     <Grid>
         <DockPanel LastChildFill="True">
+            <Menu DockPanel.Dock="Top" Background="White">
+                <!-- Le panneau d'éléments est un DockPanel pour que « ? » se range
+                     à droite sans que la barre cesse d'occuper toute la largeur :
+                     un simple HorizontalAlignment sur le Menu l'aurait rétréci. -->
+                <Menu.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <DockPanel HorizontalAlignment="Stretch" LastChildFill="False" />
+                    </ItemsPanelTemplate>
+                </Menu.ItemsPanel>
+                <MenuItem Header="?" DockPanel.Dock="Right" Name="HelpMenuItem">
+                    <MenuItem Header="_About ProcessAffinity…" Name="AboutMenuItem" Click="AboutMenuItem_Click" />
+                </MenuItem>
+            </Menu>
             <Border Height="45" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Top" FlowDirection="LeftToRight">
                 <Grid ShowGridLines="True">
                     <Grid.RowDefinitions>
@@ -23,9 +36,19 @@
                     <Label Content="Password" FontSize="8" FontWeight="ExtraBold" HorizontalAlignment="Left" Margin="353,-1,0,24" Name="Passwordlabel" Visibility="Collapsed" />
                     <PasswordBox Height="21" HorizontalAlignment="Left" Margin="353,15,0,0" Name="passwordBox" VerticalAlignment="Top" Width="120" FontSize="10" FontWeight="Black" TabIndex="4" Password="" Visibility="Collapsed" />
                     <CheckBox Content="Show services" Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ShowServicesCheckBox" VerticalAlignment="Top" Width="160" FontSize="10" IsChecked="False" Checked="ShowServicesCheckBox_CheckedChanged" Unchecked="ShowServicesCheckBox_CheckedChanged" />
+                    <Label Content="Name contains" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="168,-1,0,0" Name="NameFilterLabel" VerticalAlignment="Top" />
+                    <TextBox Height="20" HorizontalAlignment="Left" Margin="172,17,0,0" Name="NameFilterTextBox" VerticalAlignment="Top" Width="150" FontSize="10" TabIndex="6" TextChanged="NameFilterTextBox_TextChanged" />
+                    <!-- Vider le filtre en un geste : la croix n'apparaît que
+                         lorsqu'il y a quelque chose à effacer. -->
+                    <Button Content="✕" Height="20" Width="20" HorizontalAlignment="Left" Margin="324,17,0,0" Name="ClearNameFilterButton" VerticalAlignment="Top" FontSize="9" Padding="0" ToolTip="Clear the name filter" Visibility="Collapsed" Click="ClearNameFilterButton_Click" TabIndex="7" />
                 </Grid>
             </Border>
             <Border Height="44" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Bottom">
+                <!-- Le bouton est ancré au bord par le DockPanel, et non posé à une
+                     marge absolue : il reste au coin quelle que soit la largeur. -->
+                <DockPanel LastChildFill="True">
+                <Button Content="Close" DockPanel.Dock="Right" Name="CloseButton" Width="75" Height="22"
+                        Margin="6,0,8,0" VerticalAlignment="Center" Click="CloseButton_Click" TabIndex="8" />
                 <TextBlock Foreground="Black" Height="45"><InlineUIContainer>
                 		<ComboBox x:Name="CPUComboBox" Height="30" Width="50" RenderTransformOrigin="0.625,2.314" FontSize="8"  />
                 	</InlineUIContainer>
@@ -37,9 +60,6 @@
                     </InlineUIContainer>
                     <InlineUIContainer>
                         <Label Content="Total: 0" x:Name="ProcessesCountLabel" HorizontalContentAlignment="Left" Padding="2,5,2,5" />
-                    </InlineUIContainer>
-                    <InlineUIContainer>
-                        <Label Content="Evt:- New:- Del:- Mod:-" x:Name="EventsSubscritionsLabel" Padding="2,5,2,5" />
                     </InlineUIContainer>
                     <InlineUIContainer>
                         <!-- Masqué tant qu'aucune tuile n'est cochée, sur le modèle
@@ -54,6 +74,7 @@
                                Foreground="#A5322A" FontWeight="Bold" Visibility="Collapsed" />
                     </InlineUIContainer>
                 </TextBlock>
+                </DockPanel>
             </Border>
             <Border Width="50" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Left">
                 <TextBlock Foreground="Black" />
