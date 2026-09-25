@@ -216,5 +216,19 @@ namespace ProcessAffinityUI.Configuration
         /// traitée comme null — on repose la question plutôt que de deviner.
         /// </summary>
         public string CloseButtonAction { get; set; }
+
+        /// <summary>
+        /// Dernier choix connu pour le démarrage automatique, ou null si la
+        /// question n'a jamais reçu de réponse. Ce n'est qu'un souvenir : la
+        /// vérité est dans le registre, et c'est lui qui est relu au démarrage.
+        /// </summary>
+        public bool? StartWithWindows { get; set; }
+
+        /// <summary>
+        /// Vrai quand l'utilisateur a demandé à ne plus être sollicité. Séparé de
+        /// la réponse elle-même : refuser une fois n'est pas refuser pour
+        /// toujours.
+        /// </summary>
+        public bool DoNotAskStartWithWindows { get; set; }
     }
 }

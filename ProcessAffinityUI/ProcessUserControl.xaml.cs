@@ -101,8 +101,27 @@ namespace ProcessAffinityUI
         private readonly Brush[] _barBrushes = new Brush[CPUUsageBarCount];
         private string _displayedValue = "-";
 
+        /// <summary>
+        /// Historique de la mémoire, décalé dans la même passe que celui du CPU.
+        /// Un seul pinceau suffit, partagé par toutes les tuiles : les barres ne
+        /// portent aucune information par la teinte, seulement par la hauteur.
+        /// </summary>
+        private readonly double[] _memoryBarHeights = new double[CPUUsageBarCount];
+        private long _memoryBytes;
+
+        private static readonly Brush MemoryBarBrush = CreateFrozenBrush(Color.FromRgb(0x4A, 0x4A, 0x4A));
+
+        private static Brush CreateFrozenBrush(Color color)
+        {
+            SolidColorBrush brush = new SolidColorBrush(color);
+            brush.Freeze();
+
+            return brush;
+        }
+
         /// <summary>Étiquettes de la courbe, de la plus récente à la plus ancienne.</summary>
         private Label[] _bars = null;
+        private Label[] _memoryBars = null;
 
         /// <summary>
         /// Pinceaux de la courbe, indexés par pourcentage. Sans ce cache, le
@@ -405,6 +424,64 @@ namespace ProcessAffinityUI
             return this._bars;
         }
 
+        private Label[] GetMemoryBars()
+        {
+            if (this._memoryBars == null)
+            {
+                Label[] bars = new Label[CPUUsageBarCount];
+
+                for (int i = 0; i < CPUUsageBarCount; i++)
+                {
+                    bars[i] = (Label)this.FindName("MemoryUsagelabel" + i.ToString());
+                }
+
+                this._memoryBars = bars;
+            }
+
+            return this._memoryBars;
+        }
+
+        /// <summary>
+        /// Hauteur de barre pour une quantité de mémoire, rapportée au plus gros
+        /// consommateur du relevé. Rapporter à la mémoire physique donnerait une
+        /// barre invisible pour la quasi-totalité des processus : à 32 Go, un
+        /// navigateur à 500 Mo occuperait un pixel et demi.
+        /// </summary>
+        private static double GetMemoryBarHeight(long memoryBytes)
+        {
+            long maximum = Threading.Process.MaximumMemoryBytes;
+
+            if (memoryBytes <= 0 || maximum <= 0)
+            {
+                return 0d;
+            }
+
+            double height = CPUUsageBarHeight * memoryBytes / maximum;
+
+            return height > CPUUsageBarHeight ? CPUUsageBarHeight : height;
+        }
+
+        /// <summary>Mémoire en unités lisibles, pour l'infobulle.</summary>
+        internal static string DescribeMemory(long memoryBytes)
+        {
+            if (memoryBytes <= 0)
+            {
+                return "unknown";
+            }
+
+            if (memoryBytes >= 1073741824L)
+            {
+                return (memoryBytes / 1073741824d).ToString("F2") + " GB";
+            }
+
+            if (memoryBytes >= 1048576L)
+            {
+                return (memoryBytes / 1048576d).ToString("F1") + " MB";
+            }
+
+            return (memoryBytes / 1024d).ToString("F0") + " KB";
+        }
+
         /// <summary>
         /// Pinceau de la barre pour un pourcentage donné. Les cent-une valeurs
         /// possibles sont mises en cache et gelées : elles sont partagées entre
@@ -472,11 +549,17 @@ namespace ProcessAffinityUI
             {
                 this._barHeights[i] = this._barHeights[i - 1];
                 this._barBrushes[i] = this._barBrushes[i - 1];
+                this._memoryBarHeights[i] = this._memoryBarHeights[i - 1];
             }
 
             this._barHeights[0] = (CPUUsageBarHeight * singleCoreUsage) / 100d;
             this._barBrushes[0] = GetBarBrush((int)Math.Round(singleCoreUsage, MidpointRounding.AwayFromZero));
             this._displayedValue = cpuUsage.HasValue ? cpuUsage.Value.ToString("F0") : "-";
+
+            // La mémoire est déjà posée sur le processus par le même relevé : elle
+            // se lit ici sans appel système ni opération postée supplémentaires.
+            this._memoryBytes = this._process == null ? 0L : this._process.MemoryBytes;
+            this._memoryBarHeights[0] = GetMemoryBarHeight(this._memoryBytes);
 
             if (IsDisplaySuspended)
             {
@@ -497,9 +580,22 @@ namespace ProcessAffinityUI
             try
             {
                 Label[] bars = GetBars();
+                Label[] memoryBars = GetMemoryBars();
 
+                // Les deux courbes sont peintes dans la même boucle, donc dans la
+                // même opération postée : la mémoire n'ajoute rien au nombre
+                // d'allers-retours sur le dispatcher, qui est d'un par tuile et
+                // par relevé.
                 for (int i = 0; i < CPUUsageBarCount; i++)
                 {
+                    double memoryHeight = this._memoryBarHeights[i];
+
+                    if (memoryHeight > 0d)
+                    {
+                        memoryBars[i].Height = memoryHeight;
+                        memoryBars[i].Background = MemoryBarBrush;
+                    }
+
                     Brush brush = this._barBrushes[i];
 
                     if (brush == null)
@@ -511,6 +607,7 @@ namespace ProcessAffinityUI
                     bars[i].Background = brush;
                 }
 
+                this.MemoryGaugeFill.Height = this._memoryBarHeights[0];
                 this.CPUUsageValueTextBlock.Text = this._displayedValue;
                 this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
 
@@ -1161,7 +1258,11 @@ namespace ProcessAffinityUI
                     GetEntryLabel(this._process) + "\r\n" +
                     "Priority: " + this._process.Priority.ToString() + "\r\n" +
                     "Affinity: " + GetAffinityText() + "\r\n" +
-                    "CPU: " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-");
+                    "CPU: " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-") + "\r\n" +
+                    // Jeu de travail privé, comme la colonne « Mémoire » du
+                    // Gestionnaire des tâches. Le nommer évite de laisser croire
+                    // qu'il s'agit du jeu de travail complet, bien plus grand.
+                    "Memory: " + DescribeMemory(this._process.MemoryBytes) + " (private working set)";
 
                 if (!this._process.IsModifiable)
                 {

@@ -136,8 +136,18 @@ namespace ProcessAffinityUI
             return false;
         }
 
+        /// <summary>
+        /// Vrai quand l'application a démarré par son point d'entrée normal. Les
+        /// sondes construisent MainWindow directement, sans passer par ici : la
+        /// proposition de démarrage automatique ne doit pas leur bloquer le thread
+        /// de l'IHM sur une fenêtre modale.
+        /// </summary>
+        public static bool IsInteractiveLaunch { get; private set; }
+
         private void Application_Startup(object sender, StartupEventArgs e)
         {
+            IsInteractiveLaunch = true;
+
             InstallGlobalExceptionHandlers();
             EnableDebugPrivilege();
 

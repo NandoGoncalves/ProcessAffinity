@@ -401,8 +401,43 @@ namespace ProcessAffinityUI.Threading
         /// produit aucune valeur : il ne fait qu'établir la référence.
         /// Les temps sont exprimés en unités de 100 ns.
         /// </summary>
-        internal void UpdateCPUUsage(long createTime, long totalProcessorTime, long timestamp, long activitySignature)
+        /// <summary>
+        /// Jeu de travail privé, en octets, tel que le relevé le rapporte. C'est
+        /// la mesure que le Gestionnaire des tâches présente sous « Mémoire » :
+        /// vérifiée à 0,07 % près contre le compteur système WorkingSetPrivate,
+        /// là où le jeu de travail complet s'en écarte de 94 %.
+        ///
+        /// Zéro tant qu'aucun relevé n'a eu lieu.
+        /// </summary>
+        public long MemoryBytes { get { return this._memoryBytes; } }
+
+        private long _memoryBytes;
+
+        /// <summary>
+        /// Plus grande mémoire observée au dernier relevé, tous processus
+        /// confondus. C'est l'échelle des jauges : rapportée à la mémoire
+        /// physique, la quasi-totalité des processus donnerait une barre
+        /// invisible, et la question posée à un gestionnaire de tâches est
+        /// « lequel consomme le plus », pas « quelle fraction de la machine ».
+        ///
+        /// Posée par la couche de relevé, lue par les tuiles : aucune opération
+        /// supplémentaire n'est postée pour cela.
+        /// </summary>
+        public static long MaximumMemoryBytes
         {
+            get { return System.Threading.Volatile.Read(ref _maximumMemoryBytes); }
+            internal set { System.Threading.Volatile.Write(ref _maximumMemoryBytes, value); }
+        }
+
+        private static long _maximumMemoryBytes;
+
+        internal void UpdateCPUUsage(
+            long createTime, long totalProcessorTime, long timestamp, long activitySignature, long memoryBytes)
+        {
+            // Posée avant la notification : la tuile la lit dans la même opération
+            // que le % CPU, sans qu'un second passage soit nécessaire.
+            this._memoryBytes = memoryBytes;
+
             // Un PID réutilisé porte une date de création différente : on repart
             // d'une nouvelle référence au lieu de produire une valeur aberrante.
             if (this._hasCPUSample && createTime == this._lastCreateTime)
