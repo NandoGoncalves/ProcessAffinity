@@ -38,8 +38,9 @@
                     <CheckBox Content="Show services" Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ShowServicesCheckBox" VerticalAlignment="Top" Width="100" FontSize="10" IsChecked="False" Checked="ShowServicesCheckBox_CheckedChanged" Unchecked="ShowServicesCheckBox_CheckedChanged" />
                     <!-- Ce que les tuiles tracent. Le CPU est coché par défaut, la
                          mémoire non : elle passe derrière, et l'afficher d'office
-                         chargerait la tuile pour qui ne la cherche pas. -->
-                    <Label Content="Show" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="108,-1,0,0" Name="BarsLabel" VerticalAlignment="Top" />
+                         chargerait la tuile pour qui ne la cherche pas.
+                         Sans libellé au-dessus : deux cases nommées « CPU » et
+                         « RAM » à côté de « Show services » se comprennent seules. -->
                     <CheckBox Content="CPU" Height="20" HorizontalAlignment="Left" Margin="112,17,0,0" Name="ShowCpuBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="True" ToolTip="Draw the CPU history on each tile" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
                     <CheckBox Content="RAM" Height="20" HorizontalAlignment="Left" Margin="162,17,0,0" Name="ShowMemoryBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="False" ToolTip="Draw the memory history behind the CPU bars, and the gauge on the left edge" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
                     <Label Content="Name contains" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="216,-1,0,0" Name="NameFilterLabel" VerticalAlignment="Top" />
