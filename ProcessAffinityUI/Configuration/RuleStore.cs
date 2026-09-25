@@ -36,6 +36,14 @@ namespace ProcessAffinityUI.Configuration
         /// </summary>
         private static int _lastLoadedFormatVersion;
 
+        /// <summary>
+        /// Dossier de substitution, ou null pour le dossier réel. Posé uniquement
+        /// par les sondes de vérification : le fichier de règles de l'utilisateur
+        /// est sa configuration, pas un bac à sable, et une sonde qui l'écrase ne
+        /// le protège que si personne n'oublie de le restaurer.
+        /// </summary>
+        private static string _directoryOverride;
+
         private static readonly JsonSerializerOptions SerializerOptions = new JsonSerializerOptions
         {
             WriteIndented = true,
@@ -52,9 +60,34 @@ namespace ProcessAffinityUI.Configuration
         {
             get
             {
+                string redirected = _directoryOverride;
+
+                if (!string.IsNullOrEmpty(redirected))
+                {
+                    return redirected;
+                }
+
                 return Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "ProcessAffinity");
+            }
+        }
+
+        /// <summary>
+        /// Déplace le dossier des règles vers un répertoire d'essai, et oublie la
+        /// version de format retenue — elle se rapportait à l'ancien dossier.
+        ///
+        /// Passer null rend le dossier réel. Réservé aux vérifications : aucune
+        /// sonde ne doit écrire dans le dossier de l'utilisateur, la sûreté de sa
+        /// configuration ne pouvant pas reposer sur une restauration à ne pas
+        /// oublier.
+        /// </summary>
+        public static void RedirectTo(string directoryPath)
+        {
+            lock (SyncRoot)
+            {
+                _directoryOverride = directoryPath;
+                _lastLoadedFormatVersion = 0;
             }
         }
 

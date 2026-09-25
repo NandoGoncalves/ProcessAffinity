@@ -135,6 +135,16 @@ processeur logique dans l'IHM.
   fenêtres et entrées de menu. Échanges, commentaires du code et messages de
   commit en français.
 - Un commit par étape du plan, avec l'application en état de marche.
+- **Aucune sonde n'écrit ni ne supprime dans `%APPDATA%\ProcessAffinity`.** Ce
+  dossier contient la configuration de l'utilisateur, pas un bac à sable.
+  `RuleStore` expose `RedirectTo`, et `RuleEngine` le point d'entrée
+  `RedirectStoreTo(chemin)` qui redirige le stockage et vide le cache : toute
+  vérification touchant au fichier de règles passe par cette redirection, vers
+  un répertoire temporaire créé pour l'essai et supprimé après. La redirection
+  est posée avant tout autre appel, et la sonde s'arrête si `RuleEngine.FilePath`
+  ne pointe pas dans ce répertoire. Sauvegarder puis restaurer le fichier réel
+  ne vaut pas : cela protège tant que personne n'oublie, et laisse le dossier
+  vide pendant l'essai.
 - Ne pas élargir le périmètre d'une étape sans validation explicite.
 - La description de chaque PR énonce la demande d'origine avant la liste des
   modifications. Toute modification non demandée explicitement y est signalée
