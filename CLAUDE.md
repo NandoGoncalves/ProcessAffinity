@@ -152,6 +152,15 @@ processeur logique dans l'IHM.
 - Chaque branche est créée depuis `main` à jour, jamais depuis une branche de
   travail en cours. Une PR basée sur une autre branche se ferme automatiquement
   quand celle-ci est fusionnée, et doit alors être recréée.
+- **Les fusions se font en squash**, ce qui réécrit l'identité du commit : `main`
+  reçoit un commit neuf, sans lien de parenté avec celui de la branche. Un commit
+  apporté d'une autre branche — pour en récupérer un correctif avant sa fusion —
+  ne sera donc **jamais** reconnu comme ancêtre commun une fois cette branche
+  fusionnée. Les mêmes lignes arrivent des deux côtés sans base commune : il faut
+  s'attendre au conflit et le résoudre, non compter sur une fusion silencieuse.
+  Corollaire : **une seule PR ouverte à la fois sur un même fichier**. Deux
+  branches qui touchent le même fichier finiront par se le disputer, et la
+  seconde paiera la fusion de la première.
 
 ## Versionnement
 
