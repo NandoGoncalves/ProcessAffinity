@@ -39,12 +39,19 @@
                     <Label Content="User" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="238,-1,0,0" Name="UserLabel" VerticalAlignment="Top" Visibility="Collapsed" />
                     <Label Content="Password" FontSize="8" FontWeight="ExtraBold" HorizontalAlignment="Left" Margin="353,-1,0,24" Name="Passwordlabel" Visibility="Collapsed" />
                     <PasswordBox Height="21" HorizontalAlignment="Left" Margin="353,15,0,0" Name="passwordBox" VerticalAlignment="Top" Width="120" FontSize="10" FontWeight="Black" TabIndex="4" Password="" Visibility="Collapsed" />
-                    <CheckBox Content="Show services" Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ShowServicesCheckBox" VerticalAlignment="Top" Width="160" FontSize="10" IsChecked="False" Checked="ShowServicesCheckBox_CheckedChanged" Unchecked="ShowServicesCheckBox_CheckedChanged" />
-                    <Label Content="Name contains" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="168,-1,0,0" Name="NameFilterLabel" VerticalAlignment="Top" />
-                    <TextBox Height="20" HorizontalAlignment="Left" Margin="172,17,0,0" Name="NameFilterTextBox" VerticalAlignment="Top" Width="150" FontSize="10" TabIndex="6" TextChanged="NameFilterTextBox_TextChanged" />
+                    <CheckBox Content="Show services" Height="20" HorizontalAlignment="Left" Margin="6,17,0,0" Name="ShowServicesCheckBox" VerticalAlignment="Top" Width="100" FontSize="10" IsChecked="False" Checked="ShowServicesCheckBox_CheckedChanged" Unchecked="ShowServicesCheckBox_CheckedChanged" />
+                    <!-- Ce que les tuiles tracent. Le CPU est coché par défaut, la
+                         mémoire non : elle passe derrière, et l'afficher d'office
+                         chargerait la tuile pour qui ne la cherche pas.
+                         Sans libellé au-dessus : deux cases nommées « CPU » et
+                         « RAM » à côté de « Show services » se comprennent seules. -->
+                    <CheckBox Content="CPU" Height="20" HorizontalAlignment="Left" Margin="112,17,0,0" Name="ShowCpuBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="True" ToolTip="Draw the CPU history on each tile" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
+                    <CheckBox Content="RAM" Height="20" HorizontalAlignment="Left" Margin="162,17,0,0" Name="ShowMemoryBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="False" ToolTip="Draw the memory history behind the CPU bars, and the gauge on the left edge" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
+                    <Label Content="Name contains" FontSize="8" FontWeight="ExtraBold" Height="21" HorizontalAlignment="Left" Margin="216,-1,0,0" Name="NameFilterLabel" VerticalAlignment="Top" />
+                    <TextBox Height="20" HorizontalAlignment="Left" Margin="220,17,0,0" Name="NameFilterTextBox" VerticalAlignment="Top" Width="150" FontSize="10" TabIndex="6" TextChanged="NameFilterTextBox_TextChanged" />
                     <!-- Vider le filtre en un geste : la croix n'apparaît que
                          lorsqu'il y a quelque chose à effacer. -->
-                    <Button Content="✕" Height="20" Width="20" HorizontalAlignment="Left" Margin="324,17,0,0" Name="ClearNameFilterButton" VerticalAlignment="Top" FontSize="9" Padding="0" ToolTip="Clear the name filter" Visibility="Collapsed" Click="ClearNameFilterButton_Click" TabIndex="7" />
+                    <Button Content="✕" Height="20" Width="20" HorizontalAlignment="Left" Margin="372,17,0,0" Name="ClearNameFilterButton" VerticalAlignment="Top" FontSize="9" Padding="0" ToolTip="Clear the name filter" Visibility="Collapsed" Click="ClearNameFilterButton_Click" TabIndex="7" />
                 </Grid>
             </Border>
             <Border Height="44" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Bottom">

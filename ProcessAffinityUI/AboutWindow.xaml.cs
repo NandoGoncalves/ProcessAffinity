@@ -40,6 +40,8 @@ namespace ProcessAffinityUI
 
             SetCloseChoice();
 
+            SetStartupState();
+
             List<DependencyEntry> dependencies = BuildDependencyList();
 
             this.DependenciesListView.ItemsSource = dependencies;
@@ -150,6 +152,40 @@ namespace ProcessAffinityUI
             }
 
             SetCloseChoice();
+        }
+
+        /// <summary>
+        /// État du démarrage automatique, lu dans le registre. Une entrée retirée
+        /// à la main se voit donc ici, et le bouton permet de la reposer — mais
+        /// c'est alors un geste explicite, pas une remise en place silencieuse.
+        /// </summary>
+        private void SetStartupState()
+        {
+            bool enabled = StartupPreference.IsEnabled();
+
+            this.StartupStateTextBlock.Text = enabled
+                ? "ProcessAffinity starts with Windows, so your rules are applied to programs launched before you open it."
+                : "ProcessAffinity does not start with Windows. Your rules are applied only while it runs.";
+
+            this.StartupToggleButton.Content = enabled ? "Disable" : "Enable";
+        }
+
+        private void StartupToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            bool enable = !StartupPreference.IsEnabled();
+
+            string error;
+
+            // Un geste explicite depuis cette fenêtre vaut réponse : la question
+            // du premier lancement n'a plus lieu d'être posée.
+            StartupPreference.TryApplyAnswer(enable, true, out error);
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                MessageBox.Show(error, "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
+            SetStartupState();
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)

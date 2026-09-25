@@ -378,6 +378,22 @@ namespace ProcessAffinityUI.Threading
                 processes = this.ToArray();
             }
 
+            // Échelle des jauges de mémoire, calculée sur le relevé complet — donc
+            // sans parcours supplémentaire des processus affichés, et sans dépendre
+            // de ce que les filtres laissent voir.
+            long maximumMemory = 0;
+
+            foreach (KeyValuePair<int, SystemProcessTimes.ProcessTimes> pair in processTimesByProcessID)
+            {
+                if (pair.Value.PrivateWorkingSetSize > maximumMemory)
+                {
+                    maximumMemory = pair.Value.PrivateWorkingSetSize;
+                }
+            }
+
+            // Montée immédiate, descente par paliers : voir UpdateMaximumMemoryBytes.
+            Process.UpdateMaximumMemoryBytes(maximumMemory);
+
             foreach (Process process in processes)
             {
                 SystemProcessTimes.ProcessTimes processTimes;
@@ -387,7 +403,7 @@ namespace ProcessAffinityUI.Threading
                 if (processTimesByProcessID.TryGetValue(process.ProcessID, out processTimes))
                 {
                     process.UpdateCPUUsage(processTimes.CreateTime, processTimes.TotalProcessorTime, timestamp,
-                        processTimes.ActivitySignature);
+                        processTimes.ActivitySignature, processTimes.PrivateWorkingSetSize);
                 }
             }
 
@@ -405,6 +421,35 @@ namespace ProcessAffinityUI.Threading
             if (this._tickCount % ServiceScanIntervalTicks == 0)
             {
                 this.DetectServiceChanges();
+            }
+
+            this.NotifySampleCompleted(processes);
+        }
+
+        /// <summary>
+        /// Signale la fin d'un relevé, avec les entrées déjà mises à jour. Une
+        /// seule notification par relevé, et non une par entrée : ce qui s'y
+        /// branche — l'infobulle de la zone de notification — raisonne sur
+        /// l'ensemble.
+        /// </summary>
+        public event Action<Process[]> SampleCompleted;
+
+        private void NotifySampleCompleted(Process[] processes)
+        {
+            Action<Process[]> handler = this.SampleCompleted;
+
+            if (handler == null)
+            {
+                return;
+            }
+
+            try
+            {
+                handler(processes);
+            }
+            catch
+            {
+                // Un abonné en échec ne doit pas interrompre l'échantillonnage.
             }
         }
 

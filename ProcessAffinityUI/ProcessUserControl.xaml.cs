@@ -88,6 +88,17 @@ namespace ProcessAffinityUI
         public static bool IsDisplaySuspended { get; set; }
 
         /// <summary>
+        /// Ce que les tuiles tracent. Posé par les cases de la barre du haut, donc
+        /// global comme la suspension d'affichage : il n'y a qu'une fenêtre.
+        ///
+        /// L'historique continue d'être décalé en mémoire dans les deux cas : une
+        /// courbe rallumée doit repartir continue, et non d'un trou.
+        /// </summary>
+        public static bool AreCpuBarsShown { get; set; } = true;
+
+        public static bool AreMemoryBarsShown { get; set; } = false;
+
+        /// <summary>
         /// Historique glissant, du plus récent au plus ancien. Il vit ici et non
         /// dans les étiquettes : c'est ce qui permet de continuer à le décaler
         /// quand l'affichage est suspendu, et de retrouver une courbe continue
@@ -101,8 +112,41 @@ namespace ProcessAffinityUI
         private readonly Brush[] _barBrushes = new Brush[CPUUsageBarCount];
         private string _displayedValue = "-";
 
+        /// <summary>
+        /// Historique de la mémoire, décalé dans la même passe que celui du CPU.
+        ///
+        /// En octets, et non en hauteurs : l'échelle est le plus gros consommateur
+        /// du relevé, et elle change à chaque seconde. Un historique de hauteurs
+        /// mélangerait dix-sept échelles, et la disparition du plus gros processus
+        /// ferait bondir les barres déjà tracées sans qu'aucune consommation n'ait
+        /// bougé. Converti au moment de peindre, l'historique entier se remet à
+        /// l'échelle d'un seul mouvement.
+        ///
+        /// Un seul pinceau suffit, partagé par toutes les tuiles : les barres ne
+        /// portent aucune information par la teinte, seulement par la hauteur.
+        /// </summary>
+        private readonly long[] _memoryBytesHistory = new long[CPUUsageBarCount];
+        private long _memoryBytes;
+
+        /// <summary>
+        /// À peine plus foncé que le fond de la tuile, qui est LightGray
+        /// (#D3D3D3). Les barres de mémoire sont un arrière-plan : elles doivent
+        /// se lire sans disputer la lecture aux barres de CPU, qui passent devant
+        /// et portent l'information vive.
+        /// </summary>
+        private static readonly Brush MemoryBarBrush = CreateFrozenBrush(Color.FromRgb(0xBD, 0xBD, 0xBD));
+
+        private static Brush CreateFrozenBrush(Color color)
+        {
+            SolidColorBrush brush = new SolidColorBrush(color);
+            brush.Freeze();
+
+            return brush;
+        }
+
         /// <summary>Étiquettes de la courbe, de la plus récente à la plus ancienne.</summary>
         private Label[] _bars = null;
+        private Label[] _memoryBars = null;
 
         /// <summary>
         /// Pinceaux de la courbe, indexés par pourcentage. Sans ce cache, le
@@ -405,6 +449,66 @@ namespace ProcessAffinityUI
             return this._bars;
         }
 
+        private Label[] GetMemoryBars()
+        {
+            if (this._memoryBars == null)
+            {
+                Label[] bars = new Label[CPUUsageBarCount];
+
+                for (int i = 0; i < CPUUsageBarCount; i++)
+                {
+                    bars[i] = (Label)this.FindName("MemoryUsagelabel" + i.ToString());
+                }
+
+                this._memoryBars = bars;
+            }
+
+            return this._memoryBars;
+        }
+
+        /// <summary>
+        /// Hauteur de barre pour une quantité de mémoire, rapportée au plus gros
+        /// consommateur du relevé. Rapporter à la mémoire physique donnerait une
+        /// barre invisible pour la quasi-totalité des processus : à 32 Go, un
+        /// navigateur à 500 Mo occuperait un pixel et demi.
+        ///
+        /// L'échelle est passée en argument et non relue ici : tout l'historique
+        /// d'une tuile doit être converti avec la même, et la relire par barre
+        /// rendrait dix-sept lectures volatiles pour rien.
+        /// </summary>
+        private static double GetMemoryBarHeight(long memoryBytes, long maximum)
+        {
+            if (memoryBytes <= 0 || maximum <= 0)
+            {
+                return 0d;
+            }
+
+            double height = CPUUsageBarHeight * memoryBytes / maximum;
+
+            return height > CPUUsageBarHeight ? CPUUsageBarHeight : height;
+        }
+
+        /// <summary>Mémoire en unités lisibles, pour l'infobulle.</summary>
+        internal static string DescribeMemory(long memoryBytes)
+        {
+            if (memoryBytes <= 0)
+            {
+                return "unknown";
+            }
+
+            if (memoryBytes >= 1073741824L)
+            {
+                return (memoryBytes / 1073741824d).ToString("F2") + " GB";
+            }
+
+            if (memoryBytes >= 1048576L)
+            {
+                return (memoryBytes / 1048576d).ToString("F1") + " MB";
+            }
+
+            return (memoryBytes / 1024d).ToString("F0") + " KB";
+        }
+
         /// <summary>
         /// Pinceau de la barre pour un pourcentage donné. Les cent-une valeurs
         /// possibles sont mises en cache et gelées : elles sont partagées entre
@@ -472,11 +576,17 @@ namespace ProcessAffinityUI
             {
                 this._barHeights[i] = this._barHeights[i - 1];
                 this._barBrushes[i] = this._barBrushes[i - 1];
+                this._memoryBytesHistory[i] = this._memoryBytesHistory[i - 1];
             }
 
             this._barHeights[0] = (CPUUsageBarHeight * singleCoreUsage) / 100d;
             this._barBrushes[0] = GetBarBrush((int)Math.Round(singleCoreUsage, MidpointRounding.AwayFromZero));
             this._displayedValue = cpuUsage.HasValue ? cpuUsage.Value.ToString("F0") : "-";
+
+            // La mémoire est déjà posée sur le processus par le même relevé : elle
+            // se lit ici sans appel système ni opération postée supplémentaires.
+            this._memoryBytes = this._process == null ? 0L : this._process.MemoryBytes;
+            this._memoryBytesHistory[0] = this._memoryBytes;
 
             if (IsDisplaySuspended)
             {
@@ -497,9 +607,35 @@ namespace ProcessAffinityUI
             try
             {
                 Label[] bars = GetBars();
+                Label[] memoryBars = GetMemoryBars();
 
+                bool showCpu = AreCpuBarsShown;
+                bool showMemory = AreMemoryBarsShown;
+
+                // Une seule lecture de l'échelle pour toute la tuile : l'historique
+                // entier se convertit avec la même, sans quoi la courbe mélangerait
+                // de nouveau des échelles différentes.
+                long memoryScale = showMemory ? Threading.Process.MaximumMemoryBytes : 0L;
+
+                // Les deux courbes sont peintes dans la même boucle, donc dans la
+                // même opération postée : la mémoire n'ajoute rien au nombre
+                // d'allers-retours sur le dispatcher, qui est d'un par tuile et
+                // par relevé.
                 for (int i = 0; i < CPUUsageBarCount; i++)
                 {
+                    // Une barre éteinte est ramenée à zéro plutôt que masquée :
+                    // c'est la même écriture que pour la peindre, et cela évite de
+                    // faire varier le nombre d'éléments visibles à chaque bascule.
+                    double memoryHeight = showMemory
+                        ? GetMemoryBarHeight(this._memoryBytesHistory[i], memoryScale)
+                        : 0d;
+
+                    if (memoryHeight > 0d || memoryBars[i].Height > 0d)
+                    {
+                        memoryBars[i].Height = memoryHeight;
+                        memoryBars[i].Background = MemoryBarBrush;
+                    }
+
                     Brush brush = this._barBrushes[i];
 
                     if (brush == null)
@@ -507,10 +643,13 @@ namespace ProcessAffinityUI
                         continue;
                     }
 
-                    bars[i].Height = this._barHeights[i];
+                    bars[i].Height = showCpu ? this._barHeights[i] : 0d;
                     bars[i].Background = brush;
                 }
 
+                this.MemoryGaugeFill.Height = showMemory
+                    ? GetMemoryBarHeight(this._memoryBytesHistory[0], memoryScale)
+                    : 0d;
                 this.CPUUsageValueTextBlock.Text = this._displayedValue;
                 this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
 
@@ -1161,7 +1300,11 @@ namespace ProcessAffinityUI
                     GetEntryLabel(this._process) + "\r\n" +
                     "Priority: " + this._process.Priority.ToString() + "\r\n" +
                     "Affinity: " + GetAffinityText() + "\r\n" +
-                    "CPU: " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-");
+                    "CPU: " + (cpuUsage.HasValue ? cpuUsage.Value.ToString("F1") + " %" : "-") + "\r\n" +
+                    // Jeu de travail privé, comme la colonne « Mémoire » du
+                    // Gestionnaire des tâches. Le nommer évite de laisser croire
+                    // qu'il s'agit du jeu de travail complet, bien plus grand.
+                    "Memory: " + DescribeMemory(this._process.MemoryBytes) + " (private working set)";
 
                 if (!this._process.IsModifiable)
                 {

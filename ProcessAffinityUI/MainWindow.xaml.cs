@@ -88,6 +88,8 @@ namespace ProcessAffinityUI
                 // La couche de commande ne connaît pas l'IHM : c'est la fenêtre qui
                 // sait poser une question.
                 ConfigurationCommands.ConflictResolver = this.AskWhichConfiguration;
+
+                this.Loaded += MainWindowLoaded;
         }
 
         // La surcharge sans argument n'avait plus qu'un appelant, la restauration
@@ -237,6 +239,12 @@ namespace ProcessAffinityUI
 
             processes.ProcessModified -= Processes_ProcessModified;
             processes.ProcessModified += Processes_ProcessModified;
+
+            // Une seule notification par relevé, pour l'infobulle de la zone de
+            // notification : elle raisonne sur l'ensemble des entrées, pas sur
+            // l'une d'elles.
+            processes.SampleCompleted -= Processes_SampleCompleted;
+            processes.SampleCompleted += Processes_SampleCompleted;
         }
 
         /// <summary>
@@ -270,7 +278,163 @@ namespace ProcessAffinityUI
                 processes.ProcessCreated -= Processes_ProcessCreated;
                 processes.ProcessDeleted -= Processes_ProcessDeleted;
                 processes.ProcessModified -= Processes_ProcessModified;
+                processes.SampleCompleted -= Processes_SampleCompleted;
 
+        }
+
+        /// <summary>
+        /// Texte courant de l'infobulle de la zone de notification. Sert à ne la
+        /// réécrire que lorsqu'elle change réellement : la réécrire à chaque
+        /// relevé la fait scintiller, Windows la reconstruisant à chaque appel
+        /// de Shell_NotifyIcon.
+        /// </summary>
+        private string _notifyIconText = string.Empty;
+
+        /// <summary>
+        /// Longueur maximale du texte d'un NotifyIcon. WinForms rejette au-delà,
+        /// et la limite porte sur la chaîne entière, sauts de ligne compris.
+        /// </summary>
+        /// <remarks>
+        /// 127 et non 63 : la limite de 63 valait pour le shell des premières
+        /// versions de Windows. Mesurée à 127 sur .NET 9, ce que la sonde
+        /// constate plutôt que de s'y fier.
+        /// </remarks>
+        private const int NotifyIconTextMaximumLength = 127;
+
+        /// <summary>Nombre de gros consommateurs annoncés dans l'infobulle.</summary>
+        private const int NotifyIconTopProcessCount = 3;
+
+        /// <summary>
+        /// Proposition de démarrage automatique, posée une fois la fenêtre
+        /// affichée. Rien n'est demandé quand l'application n'a pas démarré par
+        /// son point d'entrée normal : une sonde qui instancie la fenêtre ne doit
+        /// pas se retrouver bloquée sur une modale.
+        /// </summary>
+        private void MainWindowLoaded(object sender, RoutedEventArgs e)
+        {
+            this.Loaded -= MainWindowLoaded;
+
+            if (!App.IsInteractiveLaunch)
+            {
+                return;
+            }
+
+            // Évalué dans tous les cas : c'est ce qui aligne le souvenir sur le
+            // registre, y compris quand l'entrée a été retirée à la main.
+            if (StartupPreference.Evaluate() != StartupPreference.StartupDecision.Ask)
+            {
+                return;
+            }
+
+            StartupPromptWindow prompt = new StartupPromptWindow();
+            prompt.Owner = this;
+
+            prompt.ShowDialog();
+
+            string error;
+
+            StartupPreference.TryApplyAnswer(prompt.Accepted, prompt.DoNotAskAgain, out error);
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                MessageBox.Show(error, "ProcessAffinity", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void Processes_SampleCompleted(Process[] processes)
+        {
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
+            string text = BuildNotifyIconText(processes);
+
+            // Comparaison faite ici, sur le thread d'échantillonnage : quand rien
+            // n'a changé — le cas ordinaire — aucune opération n'est postée.
+            if (string.Equals(text, this._notifyIconText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            this._notifyIconText = text;
+
+            this.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (this._processAffinityNotifyIcon != null)
+                    {
+                        this._processAffinityNotifyIcon.Text = text;
+                    }
+                }
+                catch
+                {
+                    // Une infobulle refusée ne doit pas faire tomber l'application.
+                }
+            }));
+        }
+
+        /// <summary>
+        /// Le nom de l'application, puis les trois plus gros consommateurs de CPU,
+        /// l'un sous l'autre. Les noms sont tronqués pour que l'ensemble tienne
+        /// dans la limite du NotifyIcon : une chaîne trop longue serait refusée,
+        /// et l'infobulle resterait celle du relevé précédent.
+        /// </summary>
+        internal static string BuildNotifyIconText(Process[] processes)
+        {
+            StringBuilder builder = new StringBuilder(ApplicationTitle);
+
+            if (processes == null)
+            {
+                return builder.ToString();
+            }
+
+            List<Process> top = processes
+                .Where(p => p != null && !p.IsService && p.CPUUsage.HasValue && p.CPUUsage.Value > 0d)
+                .OrderByDescending(p => p.CPUUsage.Value)
+                .Take(NotifyIconTopProcessCount)
+                .ToList();
+
+            foreach (Process process in top)
+            {
+                // Le pourcentage est rapporté à la machine entière, comme la valeur
+                // écrite sur la tuile et comme le Gestionnaire des tâches.
+                string percent = process.CPUUsage.Value.ToString("F0") + " %";
+                string name = ShortenProcessName(process.ProcessName, NotifyIconNameLength);
+
+                builder.Append("\r\n").Append(name).Append(' ').Append(percent);
+            }
+
+            string text = builder.ToString();
+
+            return text.Length <= NotifyIconTextMaximumLength
+                ? text
+                : text.Substring(0, NotifyIconTextMaximumLength);
+        }
+
+        private const string ApplicationTitle = "ProcessAffinity";
+
+        /// <summary>
+        /// Place laissée au nom : quinze caractères par ligne au plus, dont cinq
+        /// pour le pourcentage et l'espace qui le précède.
+        /// </summary>
+        private const int NotifyIconNameLength = 20;
+
+        private static string ShortenProcessName(string name, int maximumLength)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return "?";
+            }
+
+            // L'extension n'apprend rien ici et coûte quatre caractères sur dix.
+            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                name = name.Substring(0, name.Length - 4);
+            }
+
+            return name.Length <= maximumLength ? name : name.Substring(0, maximumLength - 1) + "…";
         }
 
         private void ClearProcessWrapPanel()
@@ -1684,6 +1848,28 @@ namespace ProcessAffinityUI
             // plus le dispatcher.
             this.UnsubscribeProcessEventHandlers(this._processes);
             this.UnsubscribeProcessEventHandlers(this._services);
+        }
+
+        /// <summary>
+        /// Bascule des deux courbes. Rien n'est reconstruit : les tuiles existent
+        /// déjà et leur historique n'a pas cessé de glisser, il suffit de les
+        /// repeindre.
+        /// </summary>
+        private void BarsCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
+        {
+            // La case CPU porte IsChecked="True" dans le XAML, ce qui lève Checked
+            // pendant le chargement — avant que la seconde case n'existe. Sans ce
+            // garde, l'application tombait sur une NullReferenceException au
+            // démarrage, avant même d'afficher sa fenêtre.
+            if (this.ShowCpuBarsCheckBox == null || this.ShowMemoryBarsCheckBox == null)
+            {
+                return;
+            }
+
+            ProcessUserControl.AreCpuBarsShown = this.ShowCpuBarsCheckBox.IsChecked == true;
+            ProcessUserControl.AreMemoryBarsShown = this.ShowMemoryBarsCheckBox.IsChecked == true;
+
+            this.RefreshProcessUserControlsDisplay();
         }
 
         private void ShowServicesCheckBox_CheckedChanged(object sender, RoutedEventArgs e)

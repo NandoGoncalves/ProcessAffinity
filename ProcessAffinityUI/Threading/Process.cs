@@ -401,8 +401,87 @@ namespace ProcessAffinityUI.Threading
         /// produit aucune valeur : il ne fait qu'établir la référence.
         /// Les temps sont exprimés en unités de 100 ns.
         /// </summary>
-        internal void UpdateCPUUsage(long createTime, long totalProcessorTime, long timestamp, long activitySignature)
+        /// <summary>
+        /// Jeu de travail privé, en octets, tel que le relevé le rapporte. C'est
+        /// la mesure que le Gestionnaire des tâches présente sous « Mémoire » :
+        /// vérifiée à 0,07 % près contre le compteur système WorkingSetPrivate,
+        /// là où le jeu de travail complet s'en écarte de 94 %.
+        ///
+        /// Zéro tant qu'aucun relevé n'a eu lieu.
+        /// </summary>
+        public long MemoryBytes { get { return this._memoryBytes; } }
+
+        private long _memoryBytes;
+
+        /// <summary>
+        /// Plus grande mémoire observée au dernier relevé, tous processus
+        /// confondus. C'est l'échelle des jauges : rapportée à la mémoire
+        /// physique, la quasi-totalité des processus donnerait une barre
+        /// invisible, et la question posée à un gestionnaire de tâches est
+        /// « lequel consomme le plus », pas « quelle fraction de la machine ».
+        ///
+        /// Posée par la couche de relevé, lue par les tuiles : aucune opération
+        /// supplémentaire n'est postée pour cela.
+        /// </summary>
+        public static long MaximumMemoryBytes
         {
+            get { return System.Threading.Volatile.Read(ref _maximumMemoryBytes); }
+            internal set { System.Threading.Volatile.Write(ref _maximumMemoryBytes, value); }
+        }
+
+        private static long _maximumMemoryBytes;
+
+        /// <summary>
+        /// Part dont l'échelle peut au plus décroître d'un relevé au suivant.
+        /// Un dixième : une chute de moitié se résorbe en sept secondes, assez
+        /// vite pour que l'échelle reste vraie, assez lentement pour qu'aucun saut
+        /// ne se voie.
+        /// </summary>
+        private const int MaximumMemoryDecayDivisor = 10;
+
+        /// <summary>
+        /// Met l'échelle à jour depuis le plus gros consommateur observé.
+        ///
+        /// Elle monte aussitôt — sans quoi la barre du plus gros dépasserait son
+        /// cadre — mais ne redescend que par paliers. Mesuré sur trois minutes :
+        /// l'échelle ne bouge pas la plupart des secondes, mais franchit 5 % une
+        /// fois sur vingt-cinq et a sauté de 32 % une fois. Chacun de ces sauts
+        /// déplaçait d'un coup toutes les barres de toutes les tuiles, sans
+        /// qu'aucune consommation n'ait changé : c'est un mouvement sans cause,
+        /// et c'est précisément ce qu'une jauge ne doit pas montrer.
+        /// </summary>
+        internal static void UpdateMaximumMemoryBytes(long observedMaximum)
+        {
+            long current = MaximumMemoryBytes;
+
+            if (observedMaximum >= current)
+            {
+                MaximumMemoryBytes = observedMaximum;
+
+                return;
+            }
+
+            long step = current / MaximumMemoryDecayDivisor;
+
+            if (step < 1)
+            {
+                step = 1;
+            }
+
+            long floor = current - step;
+
+            // Jamais en dessous du maximum réellement observé : l'échelle peut
+            // retarder, elle ne doit pas mentir dans l'autre sens.
+            MaximumMemoryBytes = observedMaximum > floor ? observedMaximum : floor;
+        }
+
+        internal void UpdateCPUUsage(
+            long createTime, long totalProcessorTime, long timestamp, long activitySignature, long memoryBytes)
+        {
+            // Posée avant la notification : la tuile la lit dans la même opération
+            // que le % CPU, sans qu'un second passage soit nécessaire.
+            this._memoryBytes = memoryBytes;
+
             // Un PID réutilisé porte une date de création différente : on repart
             // d'une nouvelle référence au lieu de produire une valeur aberrante.
             if (this._hasCPUSample && createTime == this._lastCreateTime)

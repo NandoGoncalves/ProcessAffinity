@@ -87,7 +87,9 @@ namespace ProcessAffinityUI.Threading
                 processTimesByProcessID[processID] = new ProcessTimes(
                     information.CreateTime,
                     information.KernelTime + information.UserTime,
-                    GetActivitySignature(information));
+                    GetActivitySignature(information),
+                    information.WorkingSetPrivateSize,
+                    (long)information.WorkingSetSize.ToUInt64());
 
                 if (information.NextEntryOffset == 0)
                 {
@@ -131,12 +133,35 @@ namespace ProcessAffinityUI.Threading
         /// </summary>
         public readonly struct ProcessTimes
         {
-            public ProcessTimes(long createTime, long totalProcessorTime, long activitySignature)
+            public ProcessTimes(
+                long createTime,
+                long totalProcessorTime,
+                long activitySignature,
+                long privateWorkingSetSize,
+                long workingSetSize)
             {
                 this.CreateTime = createTime;
                 this.TotalProcessorTime = totalProcessorTime;
                 this.ActivitySignature = activitySignature;
+                this.PrivateWorkingSetSize = privateWorkingSetSize;
+                this.WorkingSetSize = workingSetSize;
             }
+
+            /// <summary>
+            /// Jeu de travail privé, en octets : les pages résidentes que ce
+            /// processus ne partage avec aucun autre. C'est la mesure que le
+            /// Gestionnaire des tâches présente sous « Mémoire », et celle que
+            /// l'application affiche.
+            /// </summary>
+            public long PrivateWorkingSetSize { get; }
+
+            /// <summary>
+            /// Jeu de travail complet, pages partagées comprises. Bien plus grand
+            /// que le précédent, et trompeur pour comparer des processus : les DLL
+            /// système y sont comptées autant de fois qu'il y a de processus.
+            /// Conservé pour que la comparaison des deux soit vérifiable.
+            /// </summary>
+            public long WorkingSetSize { get; }
 
             /// <summary>État résumé : toute variation vaut « il s'est passé quelque chose ».</summary>
             public long ActivitySignature { get; }
@@ -156,10 +181,13 @@ namespace ProcessAffinityUI.Threading
             public IntPtr Buffer;
         }
 
-        // Préfixe de la structure réelle, qui se poursuit par les compteurs
-        // mémoire puis le tableau des threads. Les champs sont déclarés jusqu'à
-        // UniqueProcessKey pour que la disposition séquentielle place CreateTime,
-        // UserTime, KernelTime et UniqueProcessId aux bons décalages.
+        // Préfixe de la structure réelle, qui se poursuit par le tableau des
+        // threads. Les champs sont déclarés jusqu'à WorkingSetSize pour que la
+        // disposition séquentielle place chaque compteur au bon décalage.
+        //
+        // Les deux mesures de mémoire sont déjà là : WorkingSetPrivateSize dès
+        // le début de la structure, WorkingSetSize après les compteurs de mémoire
+        // virtuelle. Aucun appel supplémentaire n'est nécessaire pour les obtenir.
         [StructLayout(LayoutKind.Sequential)]
         private struct SYSTEM_PROCESS_INFORMATION
         {
@@ -179,6 +207,11 @@ namespace ProcessAffinityUI.Threading
             public uint HandleCount;
             public uint SessionId;
             public UIntPtr UniqueProcessKey;
+            public UIntPtr PeakVirtualSize;
+            public UIntPtr VirtualSize;
+            public uint PageFaultCount;
+            public UIntPtr PeakWorkingSetSize;
+            public UIntPtr WorkingSetSize;
         }
     }
 }
