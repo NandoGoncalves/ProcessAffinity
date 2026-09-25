@@ -36,6 +36,27 @@ namespace ProcessAffinityUI.Configuration
             get { return RuleStore.FilePath; }
         }
 
+        /// <summary>
+        /// Redirige le stockage des règles vers un répertoire d'essai et vide le
+        /// cache, pour que la redirection prenne effet même si des règles ont déjà
+        /// été chargées. Passer null rend le dossier réel.
+        ///
+        /// Seul point d'entrée des sondes : aucune vérification ne doit écrire ni
+        /// supprimer dans <c>%APPDATA%\ProcessAffinity</c>, qui contient la
+        /// configuration de l'utilisateur.
+        /// </summary>
+        public static void RedirectStoreTo(string directoryPath)
+        {
+            lock (SyncRoot)
+            {
+                RuleStore.RedirectTo(directoryPath);
+
+                _rulesByPath = new Dictionary<string, ProcessRule>(StringComparer.OrdinalIgnoreCase);
+                _loaded = false;
+                LoadError = null;
+            }
+        }
+
         public static void EnsureLoaded()
         {
             lock (SyncRoot)
