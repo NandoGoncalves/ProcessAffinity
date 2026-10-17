@@ -225,7 +225,12 @@ namespace ProcessAffinityUI.Threading
                     }
                     else
                     {
-                        Query = new ObjectQuery("SELECT * FROM Win32_Service WHERE State LIKE 'Running'");
+                        // Les services en pause comptent au même titre que ceux
+                        // en cours : leur hôte tourne toujours, et s'en tenir à
+                        // « Running » faisait disparaître la tuile au moment même
+                        // où l'utilisateur venait de mettre le service en pause,
+                        // rendant « Resume » inatteignable.
+                        Query = new ObjectQuery("SELECT * FROM Win32_Service WHERE State = 'Running' OR State = 'Paused'");
                     }
                     ManagementObjectSearcher Searcher = new ManagementObjectSearcher(scope, Query);
 
@@ -956,6 +961,11 @@ namespace ProcessAffinityUI.Threading
         /// faisait l'énumération initiale en coûte 338. Les autres propriétés ne
         /// servent qu'à matérialiser un service nouvellement apparu.
         /// </summary>
+        /// <remarks>
+        /// Même filtre que l'énumération initiale, pause comprise : un écart
+        /// entre les deux relevés ferait voir une création ou une suppression
+        /// là où il n'y a qu'un changement d'état.
+        /// </remarks>
         private Dictionary<string, int> GetRunningServiceProcessIDs()
         {
             if (this._scope == null)
@@ -968,7 +978,7 @@ namespace ProcessAffinityUI.Threading
                 Dictionary<string, int> processIDsByServiceName =
                     new Dictionary<string, int>(256, StringComparer.OrdinalIgnoreCase);
 
-                ObjectQuery query = new ObjectQuery("SELECT ProcessId, Name, State FROM Win32_Service WHERE State = 'Running'");
+                ObjectQuery query = new ObjectQuery("SELECT ProcessId, Name, State FROM Win32_Service WHERE State = 'Running' OR State = 'Paused'");
 
                 using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(this._scope, query))
                 {

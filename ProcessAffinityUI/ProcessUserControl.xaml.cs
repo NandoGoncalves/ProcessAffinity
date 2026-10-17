@@ -429,6 +429,46 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
+        /// Entrées de service cochées, dédoublonnées par nom de service.
+        ///
+        /// Le pendant de <see cref="GetSelectedProcesses"/>, qui écarte les
+        /// services : les deux familles ne prennent pas les mêmes commandes, et
+        /// une sélection mêlant les deux n'applique à chacune que ce qui la
+        /// concerne. Le dédoublonnage se fait sur le nom et non sur le PID,
+        /// plusieurs services partageant un même hôte.
+        /// </summary>
+        public static List<Process> GetSelectedServices()
+        {
+            List<Process> selected = new List<Process>();
+
+            Func<Process[]> source = SelectionSource;
+
+            if (source == null)
+            {
+                return selected;
+            }
+
+            HashSet<string> seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (Process process in source())
+            {
+                if (process == null || !process.IsSelected || !process.IsService)
+                {
+                    continue;
+                }
+
+                if (!seenNames.Add(process.ProcessName ?? string.Empty))
+                {
+                    continue;
+                }
+
+                selected.Add(process);
+            }
+
+            return selected;
+        }
+
+        /// <summary>
         /// Étiquettes de la courbe, résolues une fois. La plus récente est
         /// CPUUsagelabel0.
         /// </summary>
@@ -862,13 +902,7 @@ namespace ProcessAffinityUI
 
             if (this._process.IsService)
             {
-                MenuItem menuItem = new MenuItem();
-                menuItem.Header = "Service";
-                menu.Items.Add(menuItem);
-
-                //menuItem = new MenuItem();
-                //menuItem.Header = "Priority";
-                //((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+                BuildServiceMenu(menu);
             }
             else if(this._process.IsProcessMonitored)
             {
@@ -940,6 +974,89 @@ namespace ProcessAffinityUI
             this.ContextMenu = menu;
 
             
+        }
+
+        /// <summary>
+        /// Menu d'une tuile de service : les cinq commandes de contrôle.
+        ///
+        /// Les commandes indisponibles sont grisées, jamais retirées. Masquer
+        /// ferait croire que la fonctionnalité n'existe pas, là où le grisé dit
+        /// qu'elle existe et pourquoi elle ne s'applique pas ici. Encore
+        /// faut-il que l'info-bulle s'affiche sur un élément désactivé, ce que
+        /// WPF ne fait pas sans <c>ToolTipService.ShowOnDisabled</c>.
+        ///
+        /// « Kill » ne figure pas ici, et n'y figurait pas davantage avant :
+        /// terminer l'hôte d'un service est brutal là où l'arrêt existe. Le
+        /// chemin reste accessible depuis la tuile du processus hôte, qui
+        /// avertit des services emportés.
+        /// </summary>
+        private void BuildServiceMenu(ContextMenu menu)
+        {
+            List<Process> selection = GetSelectedServices();
+
+            bool actsOnSelection = selection.Count > 0;
+            string scope = actsOnSelection ? " (" + selection.Count + " selected)" : string.Empty;
+
+            List<ServiceSnapshot> snapshots = (actsOnSelection
+                    ? selection.Select(service => service.ProcessName)
+                    : new[] { this._process.ProcessName }.AsEnumerable())
+                .Select(ServiceControl.Describe)
+                .ToList();
+
+            MenuItem title = new MenuItem();
+            title.IsEnabled = false;
+
+            if (actsOnSelection)
+            {
+                title.Header = "Service control — " + selection.Count + " selected";
+            }
+            else
+            {
+                ServiceSnapshot snapshot = snapshots[0];
+
+                title.Header = "Service — " + (snapshot.IsReadable
+                    ? ServiceControl.DescribeStatus(snapshot.Status)
+                    : "state unavailable");
+
+                if (!snapshot.IsReadable)
+                {
+                    title.ToolTip = snapshot.UnreadableReason;
+                    ToolTipService.SetShowOnDisabled(title, true);
+                }
+            }
+
+            menu.Items.Add(title);
+            menu.Items.Add(new Separator());
+
+            foreach (ServiceCommandEnum command in ServiceCommands.MenuOrder)
+            {
+                ServiceCommandAvailability availability = ServiceCommands.GetAvailability(snapshots, command);
+
+                MenuItem menuItem = new MenuItem();
+                menuItem.Header = ServiceCommands.GetHeader(command) + scope;
+                menuItem.IsEnabled = availability.IsAvailable;
+
+                if (!availability.IsAvailable)
+                {
+                    menuItem.ToolTip = availability.Reason;
+                    ToolTipService.SetShowOnDisabled(menuItem, true);
+                }
+
+                ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click +=
+                    new RoutedEventHandler(ProcessUserControlContextMenuClick);
+            }
+
+            if (!actsOnSelection)
+            {
+                return;
+            }
+
+            menu.Items.Add(new Separator());
+
+            MenuItem clearItem = new MenuItem();
+            clearItem.Header = ClearSelectionHeader;
+            ((MenuItem)menu.Items[menu.Items.Add(clearItem)]).Click +=
+                new RoutedEventHandler(ProcessUserControlContextMenuClick);
         }
 
         /// <summary>
@@ -1049,6 +1166,16 @@ namespace ProcessAffinityUI
                 header = header.Substring(0, parenthesis);
             }
 
+            // Les commandes de service suivent leur propre chemin : leurs cibles
+            // sont les services cochés, et non les processus.
+            ServiceCommandEnum serviceCommand;
+
+            if (this._process.IsService && ServiceCommands.TryParseHeader(header, out serviceCommand))
+            {
+                StartServiceCommand(serviceCommand);
+                return;
+            }
+
             // Sélection non vide : elle prime sur la tuile visée, qui est alors
             // ignorée. Vide : l'action porte sur la seule tuile visée.
             List<Process> targets = GetSelectedProcesses();
@@ -1101,6 +1228,44 @@ namespace ProcessAffinityUI
                     break;
             }
 
+        }
+
+        /// <summary>
+        /// Lance une commande de service et rend la main aussitôt.
+        ///
+        /// <c>async void</c> est ici le bon outil : c'est un gestionnaire
+        /// d'événement, il n'y a rien à attendre côté appelant, et toute la
+        /// suite — confirmation, exécution, rapport — se déroule dans
+        /// <c>ExecuteAsync</c>. L'interface reste vivante pendant l'attente, et
+        /// les tuiles continuent de se rafraîchir : c'est ainsi que le nouveau
+        /// PID d'un service redémarré apparaît de lui-même.
+        /// </summary>
+        private async void StartServiceCommand(ServiceCommandEnum command)
+        {
+            // Sélection non vide : elle prime sur la tuile visée, comme pour les
+            // processus. Une sélection mêlant services et processus n'apporte
+            // ici que ses services.
+            List<string> targets = GetSelectedServices()
+                .Select(service => service.ProcessName)
+                .ToList();
+
+            if (targets.Count == 0)
+            {
+                targets.Add(this._process.ProcessName);
+            }
+
+            try
+            {
+                await ServiceCommands.ExecuteAsync(targets, command);
+            }
+            catch (Exception exception)
+            {
+                // Un async void qui lève emporte l'application : le filet est
+                // obligatoire, si peu probable que soit le cas.
+                MessageBox.Show(
+                    "The service command could not be completed.\r\n\r\n" + exception.Message,
+                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         /// <summary>
