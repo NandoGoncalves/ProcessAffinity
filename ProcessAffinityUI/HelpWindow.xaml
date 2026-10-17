@@ -1,0 +1,62 @@
+<Window x:Class="ProcessAffinityUI.HelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ProcessAffinity — Help" Height="640" Width="720"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        ResizeMode="CanResize" MinHeight="400" MinWidth="520"
+        Icon="ProcessAffinity.ico">
+
+    <Window.Resources>
+        <!-- Styles du document. Le contenu est bâti en code, mais sa mise en forme
+             tient ici : un seul endroit à relire pour juger de la lisibilité. -->
+        <Style x:Key="HeadingStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Margin" Value="0,18,0,6" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="BodyStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineHeight" Value="18" />
+        </Style>
+
+        <Style x:Key="WarningStyle" TargetType="Border">
+            <Setter Property="BorderBrush" Value="#FFE0C27A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="#FFFDF7E6" />
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="ProcessAffinity" FontSize="18" FontWeight="Bold" />
+            <TextBlock Name="SubtitleTextBlock" FontSize="11" Foreground="#555555" Margin="0,2,0,0"
+                       Text="What Windows does not let you reach" />
+        </StackPanel>
+
+        <Border Grid.Row="1" BorderBrush="#CCCCCC" BorderThickness="1" Margin="0,12,0,0" Background="White">
+            <ScrollViewer Name="ContentScrollViewer" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" Padding="16,12,16,12">
+                <StackPanel Name="ContentPanel" />
+            </ScrollViewer>
+        </Border>
+
+        <DockPanel Grid.Row="2" Margin="0,10,0,0">
+            <TextBlock Name="VersionTextBlock" DockPanel.Dock="Left" VerticalAlignment="Center"
+                       FontSize="10" Foreground="#555555" Text="" />
+            <Button Content="Close" Name="CloseButton" Width="80" Height="23"
+                    HorizontalAlignment="Right" IsDefault="True" IsCancel="True" Click="CloseButton_Click" />
+        </DockPanel>
+    </Grid>
+</Window>
