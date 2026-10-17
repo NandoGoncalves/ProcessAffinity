@@ -1289,7 +1289,10 @@ Exemple : 7.")]
             }
             datetime = new System.DateTime(year, month, day, hour, minute, second, 0);
             datetime = datetime.AddTicks(ticks);
-            System.TimeSpan tickOffset = System.TimeZone.CurrentTimeZone.GetUtcOffset(datetime);
+            // TimeZoneInfo.Local remplace System.TimeZone, obsolete. Equivalent ici :
+            // la date construite plus haut porte DateTimeKind.Unspecified, que les
+            // deux interpretent comme une heure locale.
+            System.TimeSpan tickOffset = System.TimeZoneInfo.Local.GetUtcOffset(datetime);
             int UTCOffset = 0;
             int OffsetToBeAdjusted = 0;
             long OffsetMins = ((long)((tickOffset.Ticks / System.TimeSpan.TicksPerMinute)));
@@ -1311,7 +1314,9 @@ Exemple : 7.")]
         // Convertit un objet System.DateTime au format datetime DMTF.
         static string ToDmtfDateTime(System.DateTime date) {
             string utcString = string.Empty;
-            System.TimeSpan tickOffset = System.TimeZone.CurrentTimeZone.GetUtcOffset(date);
+            // Idem. Cette methode n est appelee de nulle part — conservee avec le reste
+            // du wrapper genere — mais l avertissement, lui, etait bien reel.
+            System.TimeSpan tickOffset = System.TimeZoneInfo.Local.GetUtcOffset(date);
             long OffsetMins = ((long)((tickOffset.Ticks / System.TimeSpan.TicksPerMinute)));
             if ((System.Math.Abs(OffsetMins) > 999)) {
                 date = date.ToUniversalTime();

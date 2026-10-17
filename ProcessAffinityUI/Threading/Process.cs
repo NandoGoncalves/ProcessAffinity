@@ -378,9 +378,12 @@ namespace ProcessAffinityUI.Threading
                 nint affinity = unchecked((nint)processorAffinity);
                 System.Diagnostics.Process.GetProcessById(this.ProcessID, this.ComputerName).ProcessorAffinity = (IntPtr)affinity;
             }
-            catch (Exception e)
+            catch
             {
-                //System.Windows.MessageBox.Show(e.Message, "SetProcessorAffinity");
+                // Accès refusé ou processus disparu. L'appelant relit la valeur et
+                // signale toute divergence : c'est là que l'échec se constate, et
+                // une exception remontée ici interromprait une application en
+                // masse sur la première entrée protégée venue.
             }
         }
 

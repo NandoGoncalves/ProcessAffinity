@@ -821,11 +821,33 @@ namespace ProcessAffinityUI
                 ? string.Empty
                 : this.NameFilterTextBox.Text.Trim();
 
+            // Le texte indicatif ne tient qu'au contenu, pas au focus : un champ
+            // vide dans lequel on a cliqué doit encore dire ce qu'on y cherche.
+            bool isEmpty = this.NameFilterTextBox.Text.Length == 0;
+
+            this.NameFilterPlaceholder.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
+
             this.ClearNameFilterButton.Visibility = this._nameFilter.Length == 0
                 ? Visibility.Collapsed
                 : Visibility.Visible;
 
             this.RefreshProcessUserControlsVisibility();
+        }
+
+        /// <summary>
+        /// Soulignement d'accentuation, à l'entrée comme à la sortie du champ.
+        /// Les deux évènements partagent le gestionnaire : l'état se déduit du
+        /// focus, il n'y a rien à mémoriser.
+        /// </summary>
+        private void NameFilterTextBox_FocusChanged(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            bool hasFocus = this.NameFilterTextBox.IsKeyboardFocusWithin;
+
+            this.NameFilterAccent.Visibility = hasFocus ? Visibility.Visible : Visibility.Collapsed;
+
+            this.NameFilterBorder.BorderBrush = hasFocus
+                ? (Brush)this.FindResource("SearchAccentBrush")
+                : (Brush)this.FindResource("SearchBorderBrush");
         }
 
         private void ClearNameFilterButton_Click(object sender, RoutedEventArgs e)
@@ -1609,8 +1631,12 @@ namespace ProcessAffinityUI
         {
             Processes processes = null;
             Processes services = null;
-            
-            Mouse.OverrideCursor = Cursors.Wait;
+
+            // Mesuré entre 1,8 et 2,5 s : deux énumérations WMI puis la
+            // construction de quelques centaines de tuiles. Le curseur ne rend
+            // pas l'attente plus courte, il la rend prévisible.
+            using (WaitCursor.Show())
+            {
 
             /*
              * WMI : la version française=> "Infrastructure de gestion Windows" https://www.generation-nt.com/reponses/windows-management-instrumentation-entraide-3645941.html
@@ -1718,10 +1744,9 @@ namespace ProcessAffinityUI
             {
 
                 MessageBox.Show(ex.Message + "\r\n", this.Title, MessageBoxButton.OK, MessageBoxImage.Error);
-                
-            }
 
-            Mouse.OverrideCursor = Cursors.Arrow;
+            }
+            }
         }
 
         private void SetTitle()
@@ -1805,6 +1830,18 @@ namespace ProcessAffinityUI
             }
         }
 
+        /// <summary>
+        /// Documentation embarquée. Modale comme la fenêtre About : une seule
+        /// fenêtre principale, et rien à faire pendant qu'on lit.
+        /// </summary>
+        private void HelpContentMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            HelpWindow helpWindow = new HelpWindow();
+
+            helpWindow.Owner = this;
+            helpWindow.ShowDialog();
+        }
+
         private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
         {
             AboutWindow aboutWindow = new AboutWindow(this.GetEventSubscriptionCounts());
@@ -1874,7 +1911,16 @@ namespace ProcessAffinityUI
 
         private void ShowServicesCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
         {
-            if (this._processes != null)
+            if (this._processes == null)
+            {
+                return;
+            }
+
+            // Mesuré à 0,8 s dans un sens et 1,1 s dans l'autre : la bascule
+            // reconstruit le panneau entier, tuile par tuile. C'est long pour un
+            // filtre, et c'est signalé dans la description de la PR — le curseur
+            // n'est qu'un pansement.
+            using (WaitCursor.Show())
             {
                 this.InitializeProcessWrapPanel(this._processes);
             }
