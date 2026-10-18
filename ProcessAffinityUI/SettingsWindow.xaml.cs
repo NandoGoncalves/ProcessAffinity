@@ -430,44 +430,40 @@ namespace ProcessAffinityUI
                 }
             }
 
-            // Les couples voisins comptent autant que le texte : deux rôles
-            // rendus identiques ne gênent pas la lecture, ils suppriment
-            // l'information — et rien à l'écran ne le signalerait.
-            foreach (string[] pair in ColorPalette.AdjacentPairs)
+            if (role != null)
             {
-                if (role == null)
+                // Les couples voisins comptent autant que le texte : deux rôles
+                // rendus identiques ne gênent pas la lecture, ils suppriment
+                // l'information — et rien à l'écran ne le signalerait.
+                foreach (string[] pair in ColorPalette.AdjacentPairs)
                 {
-                    break;
+                    string otherKey = null;
+
+                    if (pair[0] == role.Key)
+                    {
+                        otherKey = pair[1];
+                    }
+                    else if (pair[1] == role.Key)
+                    {
+                        otherKey = pair[0];
+                    }
+
+                    if (otherKey == null)
+                    {
+                        continue;
+                    }
+
+                    Color other = ColorPalette.Get(otherKey);
+
+                    if (!ColorPalette.AreDistinguishable(color, other))
+                    {
+                        warnings.Add("Almost indistinguishable from “" + DescribeKey(otherKey)
+                                     + "”, including to a viewer with red-green colour blindness. "
+                                     + "Those two sit side by side, and the difference is what carries the meaning.");
+                    }
                 }
 
-                string otherKey = null;
-
-                if (pair[0] == role.Key)
-                {
-                    otherKey = pair[1];
-                }
-                else if (pair[1] == role.Key)
-                {
-                    otherKey = pair[0];
-                }
-
-                if (otherKey == null)
-                {
-                    continue;
-                }
-
-                Color other = ColorPalette.Get(otherKey);
-                double ratio = ColorPalette.ContrastRatio(color, other);
-
-                if (ratio < ColorPalette.MinimumAdjacentContrast)
-                {
-                    ColorRole otherRole = ColorPalette.GetRole(otherKey);
-
-                    warnings.Add("Almost indistinguishable from “"
-                                 + (otherRole == null ? otherKey : otherRole.DisplayName)
-                                 + "” (" + ratio.ToString("F2") + ":1). "
-                                 + "Those two sit side by side, and the difference is what carries the meaning.");
-                }
+                warnings.AddRange(DescribeOverlayProblems(role, color));
             }
 
             if (warnings.Count == 0)
@@ -482,6 +478,77 @@ namespace ProcessAffinityUI
             this.ContrastBorder.Background = ColorPalette.Freeze(Color.FromRgb(0xFD, 0xF2, 0xF1));
 
             return report + "\r\n\r\n" + string.Join("\r\n\r\n", warnings);
+        }
+
+        /// <summary>
+        /// Le jaune d'activité ne se tient pas à côté des bandeaux : il prend
+        /// leur place le temps d'un relevé. C'est donc contre chacun d'eux
+        /// qu'il doit se détacher, et non contre un voisin désigné. S'il
+        /// ressemble à celui qu'il remplace, le clignotement n'a pas lieu.
+        ///
+        /// La vérification va dans les deux sens : on édite le jaune, ou on
+        /// édite un bandeau que le jaune viendra recouvrir.
+        /// </summary>
+        private List<string> DescribeOverlayProblems(ColorRole role, Color color)
+        {
+            List<string> warnings = new List<string>();
+
+            string[] targets;
+
+            if (ColorPalette.OverlayTargets.TryGetValue(role.Key, out targets))
+            {
+                List<string> hidden = targets
+                    .Where(key => !ColorPalette.AreDistinguishable(color, ColorPalette.Get(key)))
+                    .Select(DescribeKey)
+                    .ToList();
+
+                if (hidden.Count > 0)
+                {
+                    warnings.Add("The activity flash would go unnoticed on "
+                                 + Join(hidden) + ". This colour replaces a name band for one sample; "
+                                 + "if it looks like the band it replaces, nothing appears to happen.");
+                }
+
+                return warnings;
+            }
+
+            foreach (KeyValuePair<string, string[]> overlay in ColorPalette.OverlayTargets)
+            {
+                if (!overlay.Value.Contains(role.Key))
+                {
+                    continue;
+                }
+
+                Color flash = ColorPalette.Get(overlay.Key);
+
+                if (!ColorPalette.AreDistinguishable(color, flash))
+                {
+                    warnings.Add("“" + DescribeKey(overlay.Key) + "” replaces this band for one sample when "
+                                 + "something happens, and the two would look the same — the flash would go "
+                                 + "unnoticed on this band.");
+                }
+            }
+
+            return warnings;
+        }
+
+        private static string DescribeKey(string key)
+        {
+            ColorRole role = ColorPalette.GetRole(key);
+
+            return role == null ? key : role.DisplayName;
+        }
+
+        /// <summary>« a », « a and b », « a, b and c ».</summary>
+        private static string Join(List<string> names)
+        {
+            if (names.Count == 1)
+            {
+                return "“" + names[0] + "”";
+            }
+
+            return "“" + string.Join("”, “", names.Take(names.Count - 1)) + "” and “"
+                   + names[names.Count - 1] + "”";
         }
 
         private void ScheduleCommit()
