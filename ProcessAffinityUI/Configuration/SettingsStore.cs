@@ -248,5 +248,19 @@ namespace ProcessAffinityUI.Configuration
         /// clé qu'il ne connaît pas. Rien ici ne mérite de refuser le fichier.
         /// </summary>
         public Dictionary<string, string> Colors { get; set; }
+
+        /// <summary>
+        /// Entrées épinglées en tête d'affichage, dans l'ordre où elles l'ont
+        /// été. Les clés sont préfixées par « process: » ou « service: » ;
+        /// voir <see cref="DisplayPreferences"/> pour le choix de cette
+        /// identité. Null quand il n'y en a aucune.
+        /// </summary>
+        public List<string> PinnedEntries { get; set; }
+
+        /// <summary>
+        /// Facteur d'agrandissement par entrée, pour celles qui s'écartent de
+        /// l'échelle normale. Null quand il n'y en a aucune.
+        /// </summary>
+        public Dictionary<string, int> TileScales { get; set; }
     }
 }

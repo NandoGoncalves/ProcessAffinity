@@ -40,6 +40,11 @@ namespace ProcessAffinityUI
         private const string ClearSelectionHeader = "Clear selection";
         private const string EfficiencyModeHeader = "Efficiency mode";
 
+        /// <summary>Entrées d'affichage, communes à toutes les tuiles.</summary>
+        private const string PinHeader = "Pin to front";
+        private const string UnpinHeader = "Unpin from front";
+        private const string TileSizeHeader = "Tile size";
+
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
 
@@ -224,6 +229,8 @@ namespace ProcessAffinityUI
             this.Background = ColorPalette.GetBrush(ColorPalette.TileBackground);
             this.MemoryGaugeFill.Fill = ColorPalette.GetBrush(ColorPalette.MemoryGauge);
 
+            ApplyScale();
+
             this.SetIcon(process);
             this.SetModifiableMarker(process);
             this.RestoreSelection(process);
@@ -306,6 +313,65 @@ namespace ProcessAffinityUI
             }
 
             return RestingNameBackgroundBrush;
+        }
+
+        /// <summary>
+        /// Transformations d'échelle, gelées et partagées. Une par facteur, et
+        /// non une par tuile : le même objet sert à toutes les tuiles d'un même
+        /// agrandissement, comme les pinceaux de barre.
+        /// </summary>
+        private static readonly Transform[] ScaleTransforms = BuildScaleTransforms();
+
+        private static Transform[] BuildScaleTransforms()
+        {
+            Transform[] transforms = new Transform[DisplayPreferences.MaximumScale + 1];
+
+            transforms[0] = Transform.Identity;
+            transforms[1] = Transform.Identity;
+
+            for (int scale = 2; scale <= DisplayPreferences.MaximumScale; scale++)
+            {
+                ScaleTransform transform = new ScaleTransform(scale, scale);
+                transform.Freeze();
+
+                transforms[scale] = transform;
+            }
+
+            return transforms;
+        }
+
+        /// <summary>
+        /// Agrandit la tuile par un multiple entier.
+        ///
+        /// <c>LayoutTransform</c> et non <c>RenderTransform</c> : le premier
+        /// informe la mise en page, si bien que le WrapPanel voit la tuile
+        /// agrandie et lui réserve la place ; le second se contenterait de
+        /// dessiner par-dessus les voisines.
+        ///
+        /// Rien n'est recalculé par relevé. Les dix-sept écritures de hauteur
+        /// restent identiques, à l'échelle 1, et c'est le moteur de rendu qui
+        /// applique le facteur une fois. Multiplier la géométrie des barres
+        /// dans RefreshDisplay donnerait le même résultat à l'écran en ajoutant
+        /// dix-sept multiplications par tuile et par seconde, pour rien.
+        /// </summary>
+        public void ApplyScale()
+        {
+            int scale = DisplayPreferences.GetScale(this._process);
+
+            if (scale < 1 || scale >= ScaleTransforms.Length)
+            {
+                scale = 1;
+            }
+
+            Transform wanted = ScaleTransforms[scale];
+
+            // Réécrire la même transformation invaliderait la mise en page de
+            // la tuile pour rien, et cette méthode est appelée sur toutes les
+            // tuiles à chaque changement de préférence.
+            if (!ReferenceEquals(this.LayoutTransform, wanted))
+            {
+                this.LayoutTransform = wanted;
+            }
         }
 
         /// <summary>
@@ -1055,9 +1121,134 @@ namespace ProcessAffinityUI
                 ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
             }
 
+            AppendDisplayMenu(menu);
+
             this.ContextMenu = menu;
 
-            
+
+        }
+
+        /// <summary>
+        /// Les deux réglages d'affichage, proposés sur toute tuile — processus,
+        /// service ou processus surveillé. Ils ne touchent ni à l'affinité ni à
+        /// la priorité, et n'ont donc aucune raison de dépendre des droits.
+        /// </summary>
+        private void AppendDisplayMenu(ContextMenu menu)
+        {
+            if (this._process == null)
+            {
+                return;
+            }
+
+            menu.Items.Add(new Separator());
+
+            bool pinned = DisplayPreferences.IsPinned(this._process);
+            int affected = CountEntriesSharingKey();
+
+            MenuItem pinItem = new MenuItem();
+            pinItem.Header = pinned ? UnpinHeader : PinHeader;
+
+            // La portée est annoncée avant le clic : une tuile de processus
+            // s'épingle par nom d'exécutable, donc avec toutes les instances du
+            // même programme. Vingt onglets de navigateur partent ensemble, et
+            // mieux vaut le savoir que le découvrir.
+            if (affected > 1)
+            {
+                pinItem.Header = pinItem.Header + " (" + affected + " tiles)";
+                pinItem.ToolTip = "This entry is identified by name, so the "
+                                  + affected + " running instances of \"" + this._process.ProcessName
+                                  + "\" move together.";
+                ToolTipService.SetShowOnDisabled(pinItem, true);
+            }
+
+            ((MenuItem)menu.Items[menu.Items.Add(pinItem)]).Click +=
+                new RoutedEventHandler(ProcessUserControlContextMenuClick);
+
+            menu.Items.Add(CreateTileSizeMenu());
+        }
+
+        /// <summary>
+        /// Nombre d'entrées que l'épinglage ou l'agrandissement emporterait avec
+        /// celle-ci, puisqu'elles partagent la même identité.
+        /// </summary>
+        private int CountEntriesSharingKey()
+        {
+            Func<Process[]> source = SelectionSource;
+
+            if (source == null)
+            {
+                return 1;
+            }
+
+            string key = DisplayPreferences.GetKey(this._process);
+
+            if (key == null)
+            {
+                return 1;
+            }
+
+            int count = 0;
+
+            foreach (Process entry in source())
+            {
+                if (string.Equals(DisplayPreferences.GetKey(entry), key, StringComparison.OrdinalIgnoreCase))
+                {
+                    count++;
+                }
+            }
+
+            return count < 1 ? 1 : count;
+        }
+
+        private MenuItem CreateTileSizeMenu()
+        {
+            MenuItem root = new MenuItem();
+            root.Header = TileSizeHeader;
+
+            int current = DisplayPreferences.GetScale(this._process);
+
+            for (int scale = 1; scale <= DisplayPreferences.MaximumScale; scale++)
+            {
+                MenuItem item = new MenuItem();
+                item.Header = DescribeScale(scale);
+                item.IsCheckable = true;
+                item.IsChecked = scale == current;
+                item.Tag = scale;
+                item.Click += TileSizeMenuItemClick;
+
+                root.Items.Add(item);
+            }
+
+            return root;
+        }
+
+        private static string DescribeScale(int scale)
+        {
+            switch (scale)
+            {
+                case 1: return "Normal";
+                case 2: return "Double";
+                default: return scale + "×";
+            }
+        }
+
+        private void TileSizeMenuItemClick(object sender, RoutedEventArgs e)
+        {
+            MenuItem item = sender as MenuItem;
+
+            if (item == null || !(item.Tag is int))
+            {
+                return;
+            }
+
+            string error;
+
+            if (!DisplayPreferences.TrySetScale(this._process, (int)item.Tag, out error))
+            {
+                MessageBox.Show(
+                    "The tile size was applied, but could not be saved for next time.\r\n\r\n" + error,
+                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         /// <summary>
@@ -1250,6 +1441,15 @@ namespace ProcessAffinityUI
                 header = header.Substring(0, parenthesis);
             }
 
+            // Les réglages d'affichage précèdent tout le reste : ils valent sur
+            // n'importe quelle tuile, et ne dépendent ni de la sélection ni des
+            // droits.
+            if (header == PinHeader || header == UnpinHeader)
+            {
+                TogglePin();
+                return;
+            }
+
             // Les commandes de service suivent leur propre chemin : leurs cibles
             // sont les services cochés, et non les processus.
             ServiceCommandEnum serviceCommand;
@@ -1312,6 +1512,27 @@ namespace ProcessAffinityUI
                     break;
             }
 
+        }
+
+        /// <summary>
+        /// Épingle la tuile en tête d'affichage, ou l'en retire. Le panneau se
+        /// réordonne par l'événement de <c>DisplayPreferences</c> : la tuile
+        /// n'a pas à connaître la fenêtre.
+        /// </summary>
+        private void TogglePin()
+        {
+            string error;
+
+            bool saved = DisplayPreferences.IsPinned(this._process)
+                ? DisplayPreferences.TryUnpin(this._process, out error)
+                : DisplayPreferences.TryPin(this._process, out error);
+
+            if (!saved)
+            {
+                MessageBox.Show(
+                    "The change was applied, but could not be saved for next time.\r\n\r\n" + error,
+                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         /// <summary>
