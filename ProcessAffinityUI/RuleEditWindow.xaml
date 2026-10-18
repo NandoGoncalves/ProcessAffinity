@@ -1,0 +1,76 @@
+﻿<Window x:Class="ProcessAffinityUI.RuleEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit saved configuration" Height="560" Width="640"
+        MinHeight="440" MinWidth="520"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Icon="ProcessAffinity.ico">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="MutedBrush" Color="#FF6B6B6B" />
+
+        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Margin" Value="0,12,0,4" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Executable" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,4" />
+            <TextBlock Name="ExecutablePathTextBlock" TextWrapping="Wrap" FontFamily="Consolas" />
+            <TextBlock Name="ExecutableStateTextBlock" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Foreground="{StaticResource MutedBrush}" FontSize="11" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
+            <StackPanel>
+                <TextBlock Text="Affinity" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="A hard limit: the scheduler will not place a thread outside it."
+                           Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+                <WrapPanel Name="AffinityPanel" Margin="0,6,0,0" />
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <Button Name="AffinityAllButton" Content="All" Width="70" Padding="0,3"
+                            Click="AffinityAllButton_Click" />
+                    <Button Name="AffinityNoneButton" Content="None" Width="70" Padding="0,3"
+                            Margin="6,0,0,0" Click="AffinityNoneButton_Click" />
+                </StackPanel>
+
+                <TextBlock Text="Priority" Style="{StaticResource SectionTitleStyle}" />
+                <ComboBox Name="PriorityComboBox" Width="200" HorizontalAlignment="Left" />
+                <TextBlock Name="PriorityWarningTextBlock" TextWrapping="Wrap" FontSize="11"
+                           Margin="0,4,0,0" Foreground="#FFA5322A" Visibility="Collapsed"
+                           Text="Without the SeIncreaseBasePriorityPrivilege privilege, Windows quietly downgrades real-time to high and raises no error." />
+
+                <TextBlock Text="Efficiency mode" Style="{StaticResource SectionTitleStyle}" />
+                <ComboBox Name="EfficiencyComboBox" Width="200" HorizontalAlignment="Left" />
+
+                <TextBlock Text="CPU Sets" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="A preference rather than a limit. Windows is free to ignore it under pressure."
+                           Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+                <CheckBox Name="ManageCpuSetsCheckBox" Content="This rule sets CPU Sets" Margin="0,6,0,0"
+                          Checked="ManageCpuSetsCheckBox_Changed" Unchecked="ManageCpuSetsCheckBox_Changed" />
+                <WrapPanel Name="CpuSetsPanel" Margin="0,6,0,0" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Name="InconsistencyBorder" Visibility="Collapsed" Margin="0,10,0,0"
+                Padding="8" CornerRadius="3" BorderThickness="1"
+                BorderBrush="#FFA5322A" Background="#FFFDF2F1">
+            <TextBlock Name="InconsistencyTextBlock" TextWrapping="Wrap" FontSize="11" />
+        </Border>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Name="SaveButton" Content="Save" Width="90" Padding="0,5" IsDefault="True"
+                    Click="SaveButton_Click" />
+            <Button Name="CancelButton" Content="Cancel" Width="90" Padding="0,5" Margin="8,0,0,0"
+                    IsCancel="True" />
+        </StackPanel>
+    </Grid>
+</Window>

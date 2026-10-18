@@ -1834,6 +1834,34 @@ namespace ProcessAffinityUI
         /// Documentation embarquée. Modale comme la fenêtre About : une seule
         /// fenêtre principale, et rien à faire pendant qu'on lit.
         /// </summary>
+        private void SettingsMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            SettingsWindow settingsWindow = new SettingsWindow(
+                () => this._processes == null ? new Process[0] : this._processes.Snapshot(),
+                this.ApplyPaletteToProcessUserControls);
+
+            settingsWindow.Owner = this;
+            settingsWindow.ShowDialog();
+        }
+
+        /// <summary>
+        /// Repeint toutes les tuiles après un changement de couleur, sans
+        /// reconstruire le panneau : une reconstruction perdrait la sélection,
+        /// l'historique des barres et les icônes déjà extraites.
+        ///
+        /// Le cache des pinceaux de barre est partagé et versionné par la
+        /// palette : il se vide tout seul au premier rendu suivant. Rien ici ne
+        /// crée de pinceau.
+        /// </summary>
+        private void ApplyPaletteToProcessUserControls()
+        {
+            foreach (ProcessUserControl processUserControl in
+                     this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                processUserControl.ApplyPalette();
+            }
+        }
+
         private void HelpContentMenuItem_Click(object sender, RoutedEventArgs e)
         {
             HelpWindow helpWindow = new HelpWindow();

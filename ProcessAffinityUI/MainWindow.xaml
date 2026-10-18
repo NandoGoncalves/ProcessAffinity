@@ -32,6 +32,11 @@
                     <Separator />
                     <MenuItem Header="_About ProcessAffinity…" Name="AboutMenuItem" Click="AboutMenuItem_Click" />
                 </MenuItem>
+                <!-- Rangé à droite comme « ? », et déclaré après lui : dans un
+                     DockPanel, le dernier ancré à droite se place le plus à
+                     gauche. « Settings » tombe donc bien à gauche du « ? ». -->
+                <MenuItem Header="_Settings" DockPanel.Dock="Right" Name="SettingsMenuItem"
+                          Click="SettingsMenuItem_Click" />
             </Menu>
             <Border Height="45" Background="White" BorderBrush="Black" BorderThickness="1" DockPanel.Dock="Top" FlowDirection="LeftToRight">
                 <Grid ShowGridLines="True">

@@ -111,23 +111,15 @@ processeur logique dans l'IHM.
   Le sens descendant est le plus dangereux, et c'est le moins visible : le
   fichier trop récent ayant été refusé en bloc, **aucune règle n'est chargée**,
   si bien que la première sauvegarde de l'utilisateur remplace la totalité de
-  ses règles par la seule qu'il vient d'enregistrer. Rien à l'écran ne le
-  signale.
+  ses règles par la seule qu'il vient d'enregistrer.
   Le refus d'un format trop récent nomme la copie dans son message, quand il en
   existe une que cette version sait lire : c'est le seul moment où l'utilisateur
   en a besoin, et rien jusque-là ne lui apprend qu'elle existe.
-
-## Pistes pour plus tard
-
-- Fenêtre dédiée listant toutes les règles enregistrées avec leur état — active,
-  contestée, orpheline, refusée faute de droits — et permettant de les modifier
-  ou supprimer sans passer par la tuile. Deviendra nécessaire au-delà d'une
-  vingtaine de règles.
-- La même fenêtre doit rendre compte d'un fichier de règles refusé pour format
-  trop récent : c'est un état du fichier entier, pas d'une règle, et il ne se
-  manifeste aujourd'hui que par un message au chargement. Prévoir un moyen
-  d'exporter le contenu du fichier refusé — l'utilisateur ne peut rien en faire
-  autrement, et c'est le moment où il risque de le perdre.
+  Depuis le lot 5c, l'onglet « Saved configurations » de la fenêtre Settings
+  signale aussi ce refus — liste vide mais fichier intact, avertissement
+  explicite qu'enregistrer depuis une tuile écraserait tout, et export du
+  fichier tel quel. C'est le seul endroit où cet état se voit après le message
+  de chargement.
 
 ## Conventions
 
