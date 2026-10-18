@@ -180,6 +180,69 @@ namespace ProcessAffinityUI.Configuration
         /// remplacement : une écriture interrompue ne laisse pas un JSON tronqué à
         /// la place des règles.
         /// </summary>
+        /// <summary>
+        /// Copie le fichier de règles tel quel vers l'emplacement choisi.
+        ///
+        /// C'est bien l'octet pour octet du fichier lu, et non une sérialisation
+        /// des règles chargées : le seul cas où l'export compte vraiment est
+        /// celui d'un fichier refusé pour format trop récent, dont rien n'a été
+        /// chargé. Réécrire ce qui est en mémoire n'exporterait alors que du
+        /// vide, et écraser le fichier d'origine par-dessus serait le perdre.
+        /// </summary>
+        public static bool TryExportTo(string destinationPath, out string error)
+        {
+            error = null;
+
+            lock (SyncRoot)
+            {
+                try
+                {
+                    if (!File.Exists(FilePath))
+                    {
+                        error = "There is no rules file to export yet.";
+                        return false;
+                    }
+
+                    File.Copy(FilePath, destinationPath, true);
+
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    error = "The rules file could not be exported: " + exception.Message;
+
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Version de format du fichier présent sur le disque, lue sans rien
+        /// charger ni rien juger. Zéro quand il n'y a pas de fichier, ou qu'il
+        /// n'est pas lisible.
+        /// </summary>
+        public static int ReadFileFormatVersion()
+        {
+            lock (SyncRoot)
+            {
+                try
+                {
+                    if (!File.Exists(FilePath))
+                    {
+                        return 0;
+                    }
+
+                    RuleFile file = JsonSerializer.Deserialize<RuleFile>(File.ReadAllText(FilePath), SerializerOptions);
+
+                    return file == null ? 0 : Math.Max(file.FormatVersion, 1);
+                }
+                catch
+                {
+                    return 0;
+                }
+            }
+        }
+
         public static bool TrySave(IEnumerable<ProcessRule> rules, out string error)
         {
             error = null;

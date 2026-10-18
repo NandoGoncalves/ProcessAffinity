@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using ProcessAffinityUI.Threading;
 
@@ -60,6 +61,43 @@ namespace ProcessAffinityUI.Configuration
                 // préférences lues du dossier réel resteraient servies de mémoire,
                 // puis réécrites dans le répertoire d'essai.
                 SettingsStore.Reload();
+            }
+        }
+
+        /// <summary>
+        /// Exporte le fichier de règles tel quel. Passe-plat vers le stockage :
+        /// l'IHM n'a pas à connaître <c>RuleStore</c>.
+        /// </summary>
+        public static bool TryExportTo(string destinationPath, out string error)
+        {
+            return RuleStore.TryExportTo(destinationPath, out error);
+        }
+
+        /// <summary>Version de format du fichier présent, ou 0 s'il n'y en a pas.</summary>
+        public static int FileFormatVersion
+        {
+            get { return RuleStore.ReadFileFormatVersion(); }
+        }
+
+        /// <summary>Version de format que ce binaire sait écrire.</summary>
+        public static int CurrentFormatVersion
+        {
+            get { return RuleStore.CurrentFormatVersion; }
+        }
+
+        /// <summary>
+        /// Vrai quand le fichier existe mais a été refusé : plus récent que ce
+        /// que ce binaire comprend. Aucune règle n'est alors chargée, et la
+        /// première sauvegarde remplacerait tout — d'où l'avertissement dans la
+        /// fenêtre, et l'export qui y est possible malgré tout.
+        /// </summary>
+        public static bool IsFileRejectedAsTooRecent
+        {
+            get
+            {
+                EnsureLoaded();
+
+                return LoadError != null && FileFormatVersion > CurrentFormatVersion;
             }
         }
 
@@ -391,6 +429,209 @@ namespace ProcessAffinityUI.Configuration
             // Même garde que pour le masque d'affinité : une règle venue d'une
             // machine plus large ne doit pas désigner le vide.
             return ids.Count == 0 ? null : ids.ToArray();
+        }
+
+        /// <summary>
+        /// Toutes les règles du fichier, triées par chemin. C'est ce que montre
+        /// la fenêtre des configurations enregistrées : jusqu'ici, une règle
+        /// n'était visible qu'à travers la tuile d'un processus en cours, et une
+        /// règle orpheline ne l'était nulle part.
+        /// </summary>
+        public static List<ProcessRule> GetAllRules()
+        {
+            EnsureLoaded();
+
+            lock (SyncRoot)
+            {
+                return _rulesByPath.Values
+                    .OrderBy(rule => rule.ExecutablePath, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+        }
+
+        /// <summary>
+        /// Remplace une règle et réécrit le fichier. Le chemin est l'identité :
+        /// il ne se modifie pas, une règle désignant un autre exécutable étant
+        /// une autre règle.
+        /// </summary>
+        public static bool TryUpdate(ProcessRule rule, out string error)
+        {
+            error = null;
+
+            if (rule == null || string.IsNullOrWhiteSpace(rule.ExecutablePath))
+            {
+                error = "The rule has no executable path.";
+                return false;
+            }
+
+            EnsureLoaded();
+
+            lock (SyncRoot)
+            {
+                _rulesByPath[rule.ExecutablePath] = rule;
+
+                return RuleStore.TrySave(_rulesByPath.Values, out error);
+            }
+        }
+
+        /// <summary>
+        /// Retire plusieurs règles en une seule réécriture. Les retirer une à
+        /// une réécrirait le fichier autant de fois, et laisserait un état
+        /// intermédiaire derrière chaque échec.
+        /// </summary>
+        public static bool TryRemoveMany(IEnumerable<string> executablePaths, out int removedCount, out string error)
+        {
+            error = null;
+            removedCount = 0;
+
+            if (executablePaths == null)
+            {
+                return true;
+            }
+
+            EnsureLoaded();
+
+            lock (SyncRoot)
+            {
+                foreach (string path in executablePaths)
+                {
+                    if (!string.IsNullOrEmpty(path) && _rulesByPath.Remove(path))
+                    {
+                        removedCount++;
+                    }
+                }
+
+                if (removedCount == 0)
+                {
+                    return true;
+                }
+
+                return RuleStore.TrySave(_rulesByPath.Values, out error);
+            }
+        }
+
+        /// <summary>
+        /// État d'une règle vue depuis le fichier, et non depuis une tuile.
+        ///
+        /// Les trois premiers cas se lisent sur un processus en cours ; les deux
+        /// suivants se constatent sans qu'aucun processus ne tourne, et c'est
+        /// précisément ce qu'on ne voyait nulle part. <see cref="NotRunning"/>
+        /// n'est pas un échec : la règle attend son heure.
+        /// </summary>
+        public enum RuleFileStateEnum
+        {
+            Applied,
+            Contested,
+            Denied,
+            Orphan,
+            InvalidMask,
+            NotRunning,
+        }
+
+        /// <summary>
+        /// Juge une règle sans attendre qu'un processus la porte. Les deux
+        /// vérifications qui ne demandent rien à Windows — le fichier existe-t-il
+        /// encore, le masque couvre-t-il un processeur de cette machine — passent
+        /// avant la recherche d'un processus en cours : elles valent même quand
+        /// rien ne tourne.
+        /// </summary>
+        public static RuleFileStateEnum DescribeFileState(ProcessRule rule, IEnumerable<Process> runningProcesses)
+        {
+            if (rule == null)
+            {
+                return RuleFileStateEnum.Orphan;
+            }
+
+            try
+            {
+                if (!File.Exists(rule.ExecutablePath))
+                {
+                    return RuleFileStateEnum.Orphan;
+                }
+            }
+            catch
+            {
+                // Chemin illisible : on n'en conclut pas qu'il a disparu.
+            }
+
+            if (RestrictToExistingProcessors(rule.GetAffinityMask()) == 0)
+            {
+                return RuleFileStateEnum.InvalidMask;
+            }
+
+            if (runningProcesses == null)
+            {
+                return RuleFileStateEnum.NotRunning;
+            }
+
+            bool found = false;
+
+            foreach (Process process in runningProcesses)
+            {
+                if (process == null
+                    || process.IsService
+                    || !string.Equals(process.ExecutablePath, rule.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                found = true;
+
+                // Le pire l'emporte : une règle qui tient sur une instance et
+                // échoue sur une autre est en échec, et c'est l'échec qu'il faut
+                // montrer.
+                switch (process.RuleState)
+                {
+                    case RuleStateEnum.Denied: return RuleFileStateEnum.Denied;
+                    case RuleStateEnum.Contested: return RuleFileStateEnum.Contested;
+                    case RuleStateEnum.InvalidMask: return RuleFileStateEnum.InvalidMask;
+                    case RuleStateEnum.Orphan: return RuleFileStateEnum.Orphan;
+                }
+            }
+
+            return found ? RuleFileStateEnum.Applied : RuleFileStateEnum.NotRunning;
+        }
+
+        /// <summary>Intitulé anglais d'un état, pour la liste.</summary>
+        public static string DescribeFileState(RuleFileStateEnum state)
+        {
+            switch (state)
+            {
+                case RuleFileStateEnum.Applied: return "Applied";
+                case RuleFileStateEnum.Contested: return "Contested";
+                case RuleFileStateEnum.Denied: return "Denied";
+                case RuleFileStateEnum.Orphan: return "Orphan";
+                case RuleFileStateEnum.InvalidMask: return "Invalid on this machine";
+                default: return "Not running";
+            }
+        }
+
+        /// <summary>Ce que l'état veut dire, pour l'info-bulle de la ligne.</summary>
+        public static string ExplainFileState(RuleFileStateEnum state)
+        {
+            switch (state)
+            {
+                case RuleFileStateEnum.Applied:
+                    return "The rule holds on every running instance of this executable.";
+
+                case RuleFileStateEnum.Contested:
+                    return "The rule was written but read back different. Windows silently downgrades "
+                           + "real-time priority, and may adjust an affinity mask.";
+
+                case RuleFileStateEnum.Denied:
+                    return "The running process cannot be changed without elevation, so the rule was not applied.";
+
+                case RuleFileStateEnum.Orphan:
+                    return "The executable no longer exists at this path. The rule can never apply "
+                           + "until the program is reinstalled there.";
+
+                case RuleFileStateEnum.InvalidMask:
+                    return "The saved affinity mask covers no processor of this machine. It was probably "
+                           + "saved on a machine with more logical processors.";
+
+                default:
+                    return "No instance of this executable is running. The rule will be applied at the next launch.";
+            }
         }
 
         public static bool TryRemove(string executablePath, out string error)

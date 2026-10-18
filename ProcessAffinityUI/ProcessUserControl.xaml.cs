@@ -43,21 +43,36 @@ namespace ProcessAffinityUI
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
 
-        /// <summary>Fond du bandeau de nom des entrées non modifiables.</summary>
-        private static readonly Brush NotModifiableNameBackgroundBrush =
-            new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
-
         /// <summary>
-        /// Fond du bandeau de nom d'une entrée sous règle appliquée. Même principe
-        /// que le gris : la couleur porte l'information, le reste de la tuile est
-        /// inchangé. La police passe en blanc par le calcul de luminance.
+        /// Fonds du bandeau de nom. Les quatre teintes viennent de la palette :
+        /// la couleur porte l'information, le reste de la tuile est inchangé, et
+        /// la police bascule entre noir et blanc selon la luminance — ce qui
+        /// vaut aussi pour une teinte choisie par l'utilisateur.
         /// </summary>
-        private static readonly Brush RuledNameBackgroundBrush =
-            new SolidColorBrush(Color.FromRgb(0x1F, 0x5C, 0x99));
+        private static Brush NotModifiableNameBackgroundBrush
+        {
+            get { return ColorPalette.GetBrush(ColorPalette.NameBandNotModifiable); }
+        }
 
-        /// <summary>Fond du bandeau de nom d'une règle en échec.</summary>
-        private static readonly Brush FailedRuleNameBackgroundBrush =
-            new SolidColorBrush(Color.FromRgb(0xA5, 0x32, 0x2A));
+        private static Brush RuledNameBackgroundBrush
+        {
+            get { return ColorPalette.GetBrush(ColorPalette.NameBandRuled); }
+        }
+
+        private static Brush FailedRuleNameBackgroundBrush
+        {
+            get { return ColorPalette.GetBrush(ColorPalette.NameBandFailedRule); }
+        }
+
+        private static Brush ActivityNameBackgroundBrush
+        {
+            get { return ColorPalette.GetBrush(ColorPalette.ActivityHighlight); }
+        }
+
+        private static Brush RestingNameBackgroundBrush
+        {
+            get { return ColorPalette.GetBrush(ColorPalette.NameBandResting); }
+        }
 
         /// <summary>
         /// Durée d'affichage de l'infobulle. La valeur par défaut de WPF, 5 s, la
@@ -129,19 +144,13 @@ namespace ProcessAffinityUI
         private long _memoryBytes;
 
         /// <summary>
-        /// À peine plus foncé que le fond de la tuile, qui est LightGray
-        /// (#D3D3D3). Les barres de mémoire sont un arrière-plan : elles doivent
-        /// se lire sans disputer la lecture aux barres de CPU, qui passent devant
-        /// et portent l'information vive.
+        /// À peine plus foncé que le fond de la tuile. Les barres de mémoire
+        /// sont un arrière-plan : elles doivent se lire sans disputer la lecture
+        /// aux barres de CPU, qui passent devant et portent l'information vive.
         /// </summary>
-        private static readonly Brush MemoryBarBrush = CreateFrozenBrush(Color.FromRgb(0xBD, 0xBD, 0xBD));
-
-        private static Brush CreateFrozenBrush(Color color)
+        private static Brush MemoryBarBrush
         {
-            SolidColorBrush brush = new SolidColorBrush(color);
-            brush.Freeze();
-
-            return brush;
+            get { return ColorPalette.GetBrush(ColorPalette.MemoryBars); }
         }
 
         /// <summary>Étiquettes de la courbe, de la plus récente à la plus ancienne.</summary>
@@ -149,11 +158,28 @@ namespace ProcessAffinityUI
         private Label[] _memoryBars = null;
 
         /// <summary>
-        /// Pinceaux de la courbe, indexés par pourcentage. Sans ce cache, le
-        /// rendu allouait un pinceau par barre et par relevé, soit plus de cinq
-        /// mille par seconde.
+        /// Pinceaux de la courbe, par couleur de base puis par pourcentage. Sans
+        /// ce cache, le rendu allouait un pinceau par barre et par relevé, soit
+        /// plus de cinq mille par seconde.
+        ///
+        /// La couleur fait partie de la clé, et ce n'était pas le cas : le cache
+        /// était un simple tableau de 101 entrées indexé par le seul
+        /// pourcentage, alors que la teinte dépend de la priorité du processus.
+        /// La première tuile à peindre un pourcentage imposait donc sa couleur à
+        /// toutes les autres pour ce pourcentage — vérifié : une tuile de
+        /// priorité Haute recevait le vert d'une tuile Idle. Six priorités et
+        /// cent-une valeurs font au plus 606 pinceaux gelés, toujours partagés
+        /// par toutes les tuiles : jamais un pinceau par tuile.
         /// </summary>
-        private static readonly Brush[] BarBrushesByPercent = new Brush[101];
+        private static readonly Dictionary<Color, Brush[]> BarBrushesByColor =
+            new Dictionary<Color, Brush[]>();
+
+        /// <summary>
+        /// Révision de palette à laquelle le cache ci-dessus a été rempli. Un
+        /// changement de couleur le vide plutôt que de le contourner : le
+        /// contourner reviendrait à allouer un pinceau par tuile.
+        /// </summary>
+        private static int _barBrushesRevision = -1;
 
 
         public ProcessUserControl(Process process)
@@ -192,6 +218,12 @@ namespace ProcessAffinityUI
                 MessageBox.Show("Could not initialise the process tile.\r\n\r\n" + ex.Message, ApplicationName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
+            // Les teintes réglables sont posées dès la construction : une tuile
+            // créée après un changement de palette doit naître à la bonne
+            // couleur, sans attendre un repeint général.
+            this.Background = ColorPalette.GetBrush(ColorPalette.TileBackground);
+            this.MemoryGaugeFill.Fill = ColorPalette.GetBrush(ColorPalette.MemoryGauge);
+
             this.SetIcon(process);
             this.SetModifiableMarker(process);
             this.RestoreSelection(process);
@@ -225,12 +257,12 @@ namespace ProcessAffinityUI
         {
             if (this._process == null)
             {
-                return Brushes.White;
+                return RestingNameBackgroundBrush;
             }
 
             if (this._process.ConsumeRuleJustApplied())
             {
-                return Brushes.Yellow;
+                return ActivityNameBackgroundBrush;
             }
 
             if (this._process.RuleState != RuleStateEnum.None)
@@ -240,7 +272,7 @@ namespace ProcessAffinityUI
 
             if (this._process.HasRecentActivity)
             {
-                return Brushes.Yellow;
+                return ActivityNameBackgroundBrush;
             }
 
             return GetRestingProcessNameBackgroundBrush();
@@ -273,7 +305,23 @@ namespace ProcessAffinityUI
                 }
             }
 
-            return Brushes.White;
+            return RestingNameBackgroundBrush;
+        }
+
+        /// <summary>
+        /// Reprend toutes les couleurs de la palette sur cette tuile : fond,
+        /// jauge de mémoire, bandeau de nom, et barres par le rendu suivant.
+        /// Appelée après un changement de palette, pour que l'application se
+        /// repeigne sans redémarrage.
+        /// </summary>
+        public void ApplyPalette()
+        {
+            this.Background = ColorPalette.GetBrush(ColorPalette.TileBackground);
+            this.MemoryGaugeFill.Fill = ColorPalette.GetBrush(ColorPalette.MemoryGauge);
+
+            SetModifiableMarker(this._process);
+
+            RefreshDisplay();
         }
 
         /// <summary>
@@ -565,16 +613,52 @@ namespace ProcessAffinityUI
                 percent = 100;
             }
 
-            Brush brush = BarBrushesByPercent[percent];
+            Color baseColor = this._ProcessAffinityColors == null
+                ? Colors.Red
+                : this._ProcessAffinityColors.BaseColor;
 
-            if (brush == null)
+            lock (BarBrushesByColor)
             {
-                brush = new SolidColorBrush(UIntToColor((uint)ConvertToValidRGBValue(percent)));
-                brush.Freeze();
-                BarBrushesByPercent[percent] = brush;
-            }
+                if (_barBrushesRevision != ColorPalette.Revision)
+                {
+                    // La palette a changé : le cache entier est périmé, couleurs
+                    // de base comprises. On le vide, et il se remplit de nouveau
+                    // au fil des relevés.
+                    BarBrushesByColor.Clear();
+                    _barBrushesRevision = ColorPalette.Revision;
+                }
 
-            return brush;
+                Brush[] byPercent;
+
+                if (!BarBrushesByColor.TryGetValue(baseColor, out byPercent))
+                {
+                    byPercent = new Brush[101];
+                    BarBrushesByColor[baseColor] = byPercent;
+                }
+
+                Brush brush = byPercent[percent];
+
+                if (brush == null)
+                {
+                    brush = ColorPalette.Freeze(UIntToColor((uint)ConvertToValidRGBValue(percent)));
+                    byPercent[percent] = brush;
+                }
+
+                return brush;
+            }
+        }
+
+        /// <summary>
+        /// Nombre de pinceaux de barre en cache. Sert aux vérifications : il doit
+        /// rester borné par six priorités fois cent-une valeurs, quel que soit le
+        /// nombre de tuiles.
+        /// </summary>
+        internal static int CountCachedBarBrushes()
+        {
+            lock (BarBrushesByColor)
+            {
+                return BarBrushesByColor.Values.Sum(brushes => brushes.Count(brush => brush != null));
+            }
         }
 
         /// <summary>
@@ -1603,68 +1687,48 @@ namespace ProcessAffinityUI
         }
     }
 
+    /// <summary>
+    /// Couleur de base des barres de CPU, choisie par la priorité du processus.
+    ///
+    /// Les six teintes étaient écrites ici ; elles viennent désormais de la
+    /// palette, qui les nomme et permet de les changer. L'alpha reste calculé
+    /// depuis la charge et ne se règle pas : c'est lui qui fait la montée en
+    /// intensité de la barre.
+    /// </summary>
     public class ProcessAffinityColors
     {
-        private ProcessPriorityEnum _processPriorityEnum;
-        
-        private int _a = 255;
-        private int _r = 255;
-        private int _g = 0;
-        private int _b = 0;
+        private readonly ProcessPriorityEnum _processPriorityEnum;
+        private readonly Color _baseColor;
 
         public ProcessAffinityColors(int priority)
         {
             this._processPriorityEnum = Process.ToProcessPriorityEnum(priority);
             if (priority == 0) this._processPriorityEnum = Threading.ProcessPriorityEnum.Normal;
 
-            switch (this._processPriorityEnum)
-            {
-                case Threading.ProcessPriorityEnum.Idle:
-                    this._a = 255;
-                    this._r = 0;
-                    this._g = 255;
-                    this._b = 0;
-                    break;
-                case Threading.ProcessPriorityEnum.BelowNormal:
-                    this._a = 255;
-                    this._r = 255;
-                    this._g = 255;
-                    this._b = 0;
-                    break;
-                case Threading.ProcessPriorityEnum.Normal:
-                    this._a = 255;
-                    this._r = 255;
-                    this._g = 0;
-                    this._b = 0;
-                    break;
-                case Threading.ProcessPriorityEnum.AboveNormal:
-                    this._a = 255;
-                    this._r = 200;
-                    this._g = 0;
-                    this._b = 100;
-                    break;
-                case Threading.ProcessPriorityEnum.HighPriority:
-                    this._a = 255;
-                    this._r = 100;
-                    this._g = 0;
-                    this._b = 100;
-                    break;
-                case Threading.ProcessPriorityEnum.RealTime:
-                    this._a = 255;
-                    this._r = 0;
-                    this._g = 0;
-                    this._b = 0;
-                    break;
-            }
- 
+            this._baseColor = ColorPalette.Get(GetPaletteKey(this._processPriorityEnum));
         }
 
+        public static string GetPaletteKey(ProcessPriorityEnum priority)
+        {
+            switch (priority)
+            {
+                case Threading.ProcessPriorityEnum.Idle: return ColorPalette.CpuIdle;
+                case Threading.ProcessPriorityEnum.BelowNormal: return ColorPalette.CpuBelowNormal;
+                case Threading.ProcessPriorityEnum.AboveNormal: return ColorPalette.CpuAboveNormal;
+                case Threading.ProcessPriorityEnum.HighPriority: return ColorPalette.CpuHigh;
+                case Threading.ProcessPriorityEnum.RealTime: return ColorPalette.CpuRealTime;
+                default: return ColorPalette.CpuNormal;
+            }
+        }
 
         public ProcessPriorityEnum ProcessPriorityEnum { get { return this._processPriorityEnum; } }
-        public int A{ get { return this._a; } }
-        public int R{ get { return this._r; } }
-        public int G{ get { return this._g; } }
-        public int B{ get { return this._b; } }
-    
+
+        /// <summary>Teinte pleine, avant application de l'alpha de charge.</summary>
+        public Color BaseColor { get { return this._baseColor; } }
+
+        public int A { get { return 255; } }
+        public int R { get { return this._baseColor.R; } }
+        public int G { get { return this._baseColor.G; } }
+        public int B { get { return this._baseColor.B; } }
     }
 }

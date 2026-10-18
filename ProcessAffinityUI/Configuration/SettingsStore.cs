@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -150,6 +151,11 @@ namespace ProcessAffinityUI.Configuration
             {
                 _settings = null;
             }
+
+            // La palette dérive de ces préférences : la laisser en cache ferait
+            // servir de mémoire des couleurs lues dans l'ancien dossier, puis
+            // les réécrirait dans le nouveau. Même raison que pour les règles.
+            ColorPalette.Reload();
         }
 
         private const string ExitValue = "exit";
@@ -230,5 +236,17 @@ namespace ProcessAffinityUI.Configuration
         /// toujours.
         /// </summary>
         public bool DoNotAskStartWithWindows { get; set; }
+
+        /// <summary>
+        /// Couleurs de l'interface que l'utilisateur a changées, par clé de rôle,
+        /// au format « #RRGGBB ». Seuls les écarts aux valeurs d'origine y
+        /// figurent ; null quand il n'y en a aucun, ce qui est aussi l'état d'un
+        /// fichier écrit par une version antérieure au lot 5c.
+        ///
+        /// La version du format ne monte pas pour autant : une clé absente se
+        /// lit comme « valeur d'origine », et un binaire antérieur ignore une
+        /// clé qu'il ne connaît pas. Rien ici ne mérite de refuser le fichier.
+        /// </summary>
+        public Dictionary<string, string> Colors { get; set; }
     }
 }
