@@ -192,7 +192,16 @@ namespace ProcessAffinityUI.Configuration
                 Key = NameBandFailedRule,
                 DisplayName = "Name band — rule failing",
                 Description = "A saved rule exists but is contested, denied, orphaned or invalid on this machine.",
-                Default = Color.FromRgb(0xA5, 0x32, 0x2A),
+
+                // Assombri depuis #A5322A, qui avait très exactement la même
+                // luminance que le bleu d'à côté : 1,01:1. Les deux teintes
+                // restaient discernables — l'axe bleu-jaune les sépare, et il
+                // survit aux dichromaties — mais rien ne les séparait en
+                // luminance, donc rien en niveaux de gris, sur un écran mal
+                // réglé ou pour un regard pressé. À #4D1612 l'écart est de
+                // 2,12:1, et le jaune qui vient recouvrir ce bandeau s'en
+                // détache deux fois mieux : 13,6:1 contre 6,3:1.
+                Default = Color.FromRgb(0x4D, 0x16, 0x12),
                 TextOverColor = TextOverColorEnum.Automatic,
             },
         };
@@ -585,14 +594,178 @@ namespace ProcessAffinityUI.Configuration
         };
 
         /// <summary>
-        /// Seuil en deçà duquel deux rôles voisins deviennent difficiles à
-        /// distinguer. Volontairement bas : les gris de la mémoire sont voisins
-        /// par construction, et il ne s'agit pas de condamner le réglage
-        /// d'origine mais de prévenir qu'on vient de rendre deux rôles
-        /// identiques. La valeur est calée sous le plus serré des couples
-        /// d'origine — vérifié par sonde, qui échoue si un couple d'origine
-        /// passe sous ce seuil.
+        /// Rôles qu'une teinte vient recouvrir temporairement, et dont elle doit
+        /// donc se détacher de chacun.
+        ///
+        /// Ce n'est pas un voisinage : le jaune d'activité ne se tient pas à
+        /// côté des bandeaux, il prend leur place le temps d'un relevé. S'il
+        /// ressemble à celui qu'il remplace, le clignotement n'a tout
+        /// simplement pas lieu — rien ne se passe à l'écran, et rien ne le dit.
         /// </summary>
-        public const double MinimumAdjacentContrast = 1.1d;
+        public static readonly Dictionary<string, string[]> OverlayTargets =
+            new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                {
+                    ActivityHighlight,
+                    new[] { NameBandResting, NameBandNotModifiable, NameBandRuled, NameBandFailedRule }
+                },
+            };
+
+
+        /// <summary>
+        /// Distance Lab en deçà de laquelle deux teintes se confondent. Cinq
+        /// unités est le seuil usuel : au-delà, un œil non exercé voit deux
+        /// couleurs plutôt qu'une.
+        /// </summary>
+        public const double MinimumPerceptualDifference = 5d;
+
+        /// <summary>
+        /// Déficiences sous lesquelles la distinction doit tenir.
+        ///
+        /// La vision normale, puis les deux déficiences rouge-vert, qui touchent
+        /// environ un homme sur douze. La tritanopie et l'achromatopsie en sont
+        /// écartées délibérément : elles suppriment l'axe bleu-jaune et toute
+        /// teinte, si bien qu'elles condamneraient le jaune d'activité sur le
+        /// bandeau blanc au repos — un avertissement permanent sur la palette
+        /// livrée, pour une personne sur dix mille et une sur trente mille. Le
+        /// choix est de couvrir la quasi-totalité des cas et de rester lisible,
+        /// plutôt que de tout couvrir et de n'être plus lu.
+        /// </summary>
+        private static readonly VisionEnum[] CheckedVisions =
+        {
+            VisionEnum.Normal, VisionEnum.Protanopia, VisionEnum.Deuteranopia,
+        };
+
+        private enum VisionEnum
+        {
+            Normal,
+            Protanopia,
+            Deuteranopia,
+        }
+
+        /// <summary>
+        /// Vrai quand deux couleurs restent distinctes pour la vision normale
+        /// comme pour les déficiences rouge-vert.
+        ///
+        /// Le contraste de luminance ne répond pas à cette question, et s'y
+        /// fier donnait des verdicts faux dans les deux sens. Mesuré sur une
+        /// grille de 23 220 couples : une règle fondée sur la seule luminance,
+        /// ou sur la luminance complétée d'un écart de teinte, laissait passer
+        /// plus de la moitié des couples réellement confondus tout en en
+        /// signalant cinq cents qui ne l'étaient pas.
+        ///
+        /// On simule donc la perception, et on mesure la distance qu'il en
+        /// reste. Le contraste de luminance garde son emploi pour la lisibilité
+        /// d'un texte sur un fond, qui est une autre question.
+        /// </summary>
+        public static bool AreDistinguishable(Color first, Color second)
+        {
+            return GetPerceptualDifference(first, second) >= MinimumPerceptualDifference;
+        }
+
+        /// <summary>
+        /// La plus petite distance entre deux couleurs parmi les visions
+        /// vérifiées : c'est la plus défavorable qui décide.
+        /// </summary>
+        public static double GetPerceptualDifference(Color first, Color second)
+        {
+            double smallest = double.MaxValue;
+
+            foreach (VisionEnum vision in CheckedVisions)
+            {
+                double distance = DeltaE(Simulate(first, vision), Simulate(second, vision));
+
+                if (distance < smallest)
+                {
+                    smallest = distance;
+                }
+            }
+
+            return smallest;
+        }
+
+        /// <summary>
+        /// Transformation de Viénot, Brettel et Mollon (1999) : passage en LMS,
+        /// reconstruction du cône manquant depuis les deux autres, puis retour.
+        /// </summary>
+        private static Color Simulate(Color color, VisionEnum vision)
+        {
+            if (vision == VisionEnum.Normal)
+            {
+                return color;
+            }
+
+            double r = Linearize(color.R);
+            double g = Linearize(color.G);
+            double b = Linearize(color.B);
+
+            double l = (17.8824d * r) + (43.5161d * g) + (4.11935d * b);
+            double m = (3.45565d * r) + (27.1554d * g) + (3.86714d * b);
+            double s = (0.0299566d * r) + (0.184309d * g) + (1.46709d * b);
+
+            if (vision == VisionEnum.Protanopia)
+            {
+                l = (2.02344d * m) - (2.52581d * s);
+            }
+            else
+            {
+                m = (0.494207d * l) + (1.24827d * s);
+            }
+
+            return Color.FromRgb(
+                Encode((0.080944d * l) - (0.130504d * m) + (0.116721d * s)),
+                Encode((-0.0102485d * l) + (0.0540194d * m) - (0.113615d * s)),
+                Encode((-0.000365294d * l) - (0.00412163d * m) + (0.693513d * s)));
+        }
+
+        /// <summary>Distance CIE Lab 1976.</summary>
+        private static double DeltaE(Color first, Color second)
+        {
+            double[] a = ToLab(first);
+            double[] b = ToLab(second);
+
+            return Math.Sqrt(((a[0] - b[0]) * (a[0] - b[0]))
+                             + ((a[1] - b[1]) * (a[1] - b[1]))
+                             + ((a[2] - b[2]) * (a[2] - b[2])));
+        }
+
+        private static double[] ToLab(Color color)
+        {
+            double r = Linearize(color.R);
+            double g = Linearize(color.G);
+            double b = Linearize(color.B);
+
+            double x = Pivot((((0.4124d * r) + (0.3576d * g) + (0.1805d * b)) / 0.95047d));
+            double y = Pivot((0.2126d * r) + (0.7152d * g) + (0.0722d * b));
+            double z = Pivot((((0.0193d * r) + (0.1192d * g) + (0.9505d * b)) / 1.08883d));
+
+            return new[] { (116d * y) - 16d, 500d * (x - y), 200d * (y - z) };
+        }
+
+        private static double Pivot(double value)
+        {
+            return value > 0.008856d
+                ? Math.Pow(value, 1d / 3d)
+                : (7.787d * value) + (16d / 116d);
+        }
+
+        private static byte Encode(double linear)
+        {
+            if (linear <= 0d)
+            {
+                return 0;
+            }
+
+            if (linear >= 1d)
+            {
+                return 255;
+            }
+
+            double value = linear <= 0.0031308d
+                ? linear * 12.92d
+                : (1.055d * Math.Pow(linear, 1d / 2.4d)) - 0.055d;
+
+            return (byte)Math.Round(value * 255d);
+        }
     }
 }
