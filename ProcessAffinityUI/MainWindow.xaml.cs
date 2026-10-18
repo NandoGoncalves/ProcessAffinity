@@ -81,6 +81,11 @@ namespace ProcessAffinityUI
                 ProcessUserControl.SelectionSource = () =>
                     this._processes == null ? new Process[0] : this._processes.Snapshot();
 
+                // Épinglage et agrandissement : la tuile règle la préférence, la
+                // fenêtre réordonne et redimensionne. La tuile n'a pas à
+                // connaître le panneau.
+                Configuration.DisplayPreferences.Changed += this.ApplyDisplayPreferences;
+
                 ProcessUserControl.ClearSelectionRequested = this.ClearSelection;
                 ProcessUserControl.SelectionChanged = this.SetSelectedCounter;
                 ConfigurationCommands.MarkersChanged = this.RefreshProcessUserControls;
@@ -142,6 +147,12 @@ namespace ProcessAffinityUI
                     //this.processWrapPanel.Children.Add(new ProcessUserControl(new Process(this.ComputerNameLabel.Content.ToString(), 0, processes[i] == null?"Not exists":processes[i].ProcessName)));
                 }
             }
+
+            // L'épinglage s'applique après la construction plutôt que pendant :
+            // le tri porte sur les tuiles en place, et il vaut donc aussi pour
+            // les reconstructions — bascule de « Show services », rechargement,
+            // retour depuis la zone de notification.
+            ReorderProcessWrapPanel();
 
             SetCounters();
         }
@@ -1470,6 +1481,17 @@ namespace ProcessAffinityUI
         /// </summary>
         private void InsertProcessUserControl(ProcessUserControl processUserControl, Process process)
         {
+            // L'épinglage passe avant le tri alphabétique, sans quoi la
+            // première création de processus venue replacerait la nouvelle
+            // tuile au milieu des autres et briserait le groupe de tête.
+            int pinRank = Configuration.DisplayPreferences.GetPinIndex(process);
+
+            if (pinRank >= 0)
+            {
+                InsertPinnedProcessUserControl(processUserControl, pinRank);
+                return;
+            }
+
             int index = this.processWrapPanel.Children.Count;
             bool blockEntered = false;
 
@@ -1478,6 +1500,13 @@ namespace ProcessAffinityUI
                 ProcessUserControl current = this.processWrapPanel.Children[i] as ProcessUserControl;
 
                 if (current == null || current.Process == null)
+                {
+                    continue;
+                }
+
+                // Une tuile non épinglée ne se place jamais devant le groupe de
+                // tête, quelle que soit son initiale.
+                if (GetPinRank(current) != int.MaxValue)
                 {
                     continue;
                 }
@@ -1513,6 +1542,33 @@ namespace ProcessAffinityUI
 
             // Et le compteur doit suivre : la tuile compte pour le total, et pour
             // l'affichage seulement si elle passe les filtres.
+            SetCounters();
+        }
+
+        /// <summary>
+        /// Place une tuile épinglée à son rang dans le groupe de tête. Le rang
+        /// est celui de l'ordre d'épinglage : une instance qui démarre rejoint
+        /// ses semblables, elle ne passe pas devant.
+        /// </summary>
+        private void InsertPinnedProcessUserControl(ProcessUserControl processUserControl, int pinRank)
+        {
+            int index = this.processWrapPanel.Children.Count;
+
+            for (int i = 0; i < this.processWrapPanel.Children.Count; i++)
+            {
+                int rank = GetPinRank(this.processWrapPanel.Children[i]);
+
+                // Fin du groupe de tête, ou rang supérieur : la place est ici.
+                if (rank == int.MaxValue || rank > pinRank)
+                {
+                    index = i;
+                    break;
+                }
+            }
+
+            this.processWrapPanel.Children.Insert(index, processUserControl);
+
+            SetProcessUserControlVisibility(processUserControl);
             SetCounters();
         }
 
@@ -1853,6 +1909,97 @@ namespace ProcessAffinityUI
         /// palette : il se vide tout seul au premier rendu suivant. Rien ici ne
         /// crée de pinceau.
         /// </summary>
+        /// <summary>
+        /// Reprend l'épinglage et l'agrandissement sur le panneau en place.
+        ///
+        /// Le panneau n'est pas reconstruit : une reconstruction coûte plus
+        /// d'une seconde — mesuré au lot 5a — et perdrait la sélection,
+        /// l'historique des barres et les icônes déjà extraites. On se contente
+        /// de réordonner les tuiles existantes, ce que l'étude a mesuré à
+        /// quelques millisecondes.
+        /// </summary>
+        private void ApplyDisplayPreferences()
+        {
+            // Épingler une entrée unique déplace une tuile et ne se voit pas.
+            // Mais l'identité est le nom : épingler « svchost.exe » en remonte
+            // quatre-vingt-quinze d'un coup, et cela dépasse alors les 200 ms
+            // du lot 5a. Le curseur dit l'attente plutôt que de la masquer.
+            using (WaitCursor.Show())
+            {
+                foreach (ProcessUserControl processUserControl in
+                         this.processWrapPanel.Children.OfType<ProcessUserControl>())
+                {
+                    processUserControl.ApplyScale();
+                }
+
+                ReorderProcessWrapPanel();
+            }
+        }
+
+        /// <summary>
+        /// Range les tuiles épinglées en tête, dans l'ordre où elles l'ont été,
+        /// les autres gardant leur ordre courant.
+        ///
+        /// Ne touche à rien quand l'ordre est déjà le bon : le réarrangement
+        /// vide et regarnit la collection, ce qui n'a pas de raison d'arriver à
+        /// chaque relevé.
+        /// </summary>
+        private void ReorderProcessWrapPanel()
+        {
+            List<UIElement> current = this.processWrapPanel.Children.OfType<UIElement>().ToList();
+
+            List<UIElement> wanted = current
+                .Select((element, index) => new { element, index })
+                .OrderBy(entry => GetPinRank(entry.element))
+                .ThenBy(entry => entry.index)
+                .Select(entry => entry.element)
+                .ToList();
+
+            if (current.SequenceEqual(wanted))
+            {
+                return;
+            }
+
+            // On ne déplace que ce qui est mal placé. Vider la collection pour
+            // la regarnir détache et rattache les quatre cents tuiles, et la
+            // mise en page complète qui s'ensuit coûtait 1927 ms — mesuré. Les
+            // tuiles épinglées sont une poignée : les remonter une à une coûte
+            // le nombre d'épinglées, pas le nombre de tuiles.
+            for (int target = 0; target < wanted.Count; target++)
+            {
+                UIElement element = wanted[target];
+
+                int index = this.processWrapPanel.Children.IndexOf(element);
+
+                if (index == target)
+                {
+                    continue;
+                }
+
+                this.processWrapPanel.Children.RemoveAt(index);
+                this.processWrapPanel.Children.Insert(target, element);
+            }
+        }
+
+        /// <summary>
+        /// Rang d'épinglage d'une tuile, ou <c>int.MaxValue</c> quand elle n'est
+        /// pas épinglée — ce qui la renvoie derrière toutes les autres sans cas
+        /// particulier dans le tri.
+        /// </summary>
+        private static int GetPinRank(UIElement element)
+        {
+            ProcessUserControl processUserControl = element as ProcessUserControl;
+
+            if (processUserControl == null)
+            {
+                return int.MaxValue;
+            }
+
+            int rank = Configuration.DisplayPreferences.GetPinIndex(processUserControl.Process);
+
+            return rank < 0 ? int.MaxValue : rank;
+        }
+
         private void ApplyPaletteToProcessUserControls()
         {
             foreach (ProcessUserControl processUserControl in
@@ -1913,6 +2060,11 @@ namespace ProcessAffinityUI
             // plus le dispatcher.
             this.UnsubscribeProcessEventHandlers(this._processes);
             this.UnsubscribeProcessEventHandlers(this._services);
+
+            // L'événement des préférences d'affichage est statique : sans ce
+            // détachement, la fenêtre fermée y resterait accrochée, et une
+            // sonde qui en ouvre plusieurs les verrait toutes réagir.
+            Configuration.DisplayPreferences.Changed -= this.ApplyDisplayPreferences;
         }
 
         /// <summary>
