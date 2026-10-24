@@ -3,9 +3,24 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             mc:Ignorable="d" BorderBrush="{x:Null}" BorderThickness="3" FontWeight="Normal" Opacity="1" MouseRightButtonDown="UserControl_MouseRightButtonDown" MouseDown="UserControl_MouseDown" Background= "LightGray">
+             mc:Ignorable="d" BorderBrush="{x:Null}" BorderThickness="3" FontWeight="Normal" Opacity="1" MouseRightButtonDown="UserControl_MouseRightButtonDown" MouseDown="UserControl_MouseDown" Background= "LightGray"
+             VerticalAlignment="Top" HorizontalAlignment="Left">
 
-    <!-- Deux rangées, et c'est là tout l'intérêt de la structure : seule la
+    <!-- VerticalAlignment="Top" n'est pas décoratif : dans un WrapPanel
+         horizontal, un enfant sans contrainte verticale est étiré à la hauteur
+         de sa rangée, et celle-ci vaut celle du plus haut. Une tuile doublée en
+         bout de rangée étirait donc ses voisines normales de 89 à 145 px, qui
+         se déformaient au lieu de laisser du vide.
+
+         La tuile portait auparavant Height="83", qui l'interdisait ; la
+         structure en deux rangées, qui lui donne sa hauteur par son contenu,
+         a ouvert la porte à cet étirement. L'alignement la referme.
+
+         Reste la place vide autour d'une tuile agrandie : c'est le défaut
+         connu du WrapPanel, qui demande un conteneur à cellules — hors de ce
+         lot, et chiffré dans la description de la PR.
+
+         Deux rangées, et c'est là tout l'intérêt de la structure : seule la
          première porte la transformation d'échelle.
 
          La tuile faisait 102 × 83 avec tout en positions absolues, et
