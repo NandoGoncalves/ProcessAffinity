@@ -2707,9 +2707,15 @@ namespace ProcessAffinityUI
                 return;
             }
 
-            // On ouvre l'infobulle pour que la réponse se voie sans survol, et
-            // une minuterie la referme.
+            // Ancrée sous la tuile sondée, et non au pointeur.
             //
+            // Le placement par défaut d'une infobulle est « Mouse », ce qui
+            // convient au survol mais pas ici : la souris est alors là où était
+            // l'entrée de menu. Mesuré, la réponse apparaissait à 708 px de la
+            // tuile qu'on venait d'interroger — ouverte, lisible, et ailleurs.
+            this._toolTip.PlacementTarget = this;
+            this._toolTip.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+
             // Ne jamais toucher à StaysOpen : il vaut déjà true, et
             // ToolTipService lève une NotSupportedException sur une infobulle
             // posée via la propriété ToolTip dont StaysOpen serait false. Le
@@ -2739,9 +2745,11 @@ namespace ProcessAffinityUI
                 return;
             }
 
-            // La refermer suffit : ToolTipService la gouverne de nouveau au
-            // survol, et la réponse reste dans son contenu.
             this._toolTip.IsOpen = false;
+
+            // Rendue au survol ordinaire, qui la veut au pointeur. Placement se
+            // réécrit sans dommage, contrairement à StaysOpen.
+            this._toolTip.Placement = System.Windows.Controls.Primitives.PlacementMode.Mouse;
         }
 
         private void ToolTipOpened(object sender, RoutedEventArgs e)
@@ -2822,14 +2830,18 @@ namespace ProcessAffinityUI
             }
             catch
             {
-                if (this._process == null)
-                {
-                    this._toolTipTextBlock.Text = "Process don't exists";
-                }
-                else
-                {
-                    this._toolTipTextBlock.Text = "ProcessID : unreachable";
-                }
+                // La réponse du sondage survit à ce repli, et c'est le cas qui
+                // compte : on sonde justement une entrée dont on doute, donc
+                // celle dont la lecture a le plus de chances d'échouer. Sans
+                // cela, « Is alive ? » restait sans réponse visible là où il
+                // était le plus utile.
+                string fallback = this._process == null
+                    ? "Process don't exists"
+                    : "ProcessID : unreachable";
+
+                this._toolTipTextBlock.Text = this._probeAnswer == null
+                    ? fallback
+                    : fallback + "\r\n\r\n" + this._probeAnswer;
             }
         }
 
