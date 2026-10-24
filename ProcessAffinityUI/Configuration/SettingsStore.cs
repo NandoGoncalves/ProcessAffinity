@@ -262,5 +262,19 @@ namespace ProcessAffinityUI.Configuration
         /// l'échelle normale. Null quand il n'y en a aucune.
         /// </summary>
         public Dictionary<string, int> TileScales { get; set; }
+
+        /// <summary>
+        /// Couleur de fond propre à un exécutable, au format « #RRGGBB ».
+        /// Elle l'emporte sur le rôle « Tile background » des réglages
+        /// généraux. Null quand aucun processus n'en porte.
+        /// </summary>
+        public Dictionary<string, string> TileBackgrounds { get; set; }
+
+        /// <summary>
+        /// Valeurs chiffrées affichées sur chaque tuile. Éteintes par défaut.
+        /// </summary>
+        public bool ShowCpuValueOnTile { get; set; }
+
+        public bool ShowMemoryValueOnTile { get; set; }
     }
 }

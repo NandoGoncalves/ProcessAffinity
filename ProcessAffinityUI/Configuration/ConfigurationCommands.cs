@@ -147,6 +147,23 @@ namespace ProcessAffinityUI.Configuration
                     continue;
                 }
 
+                // La taille de la tuile fait partie de la configuration, et elle
+                // s'enregistre là où elle vit : dans settings.json, sous le
+                // chemin de l'exécutable. Elle n'entre pas dans le fichier de
+                // règles — y loger une préférence d'affichage ferait monter la
+                // version de son format, et un binaire antérieur refuserait
+                // alors toutes les règles pour une question de taille de tuile.
+                //
+                // On retient la taille effective de l'instance dont la
+                // configuration a été choisie : c'est celle que l'utilisateur
+                // avait sous les yeux en demandant l'enregistrement.
+                string scaleError;
+
+                DisplayPreferences.TrySetScaleByKey(
+                    DisplayPreferences.GetKeyFromExecutablePath(chosen.Rule.ExecutablePath),
+                    DisplayPreferences.GetScale(chosen.Instances[0]),
+                    out scaleError);
+
                 // Toutes les instances de cet exécutable portent désormais la règle,
                 // et non la seule dont la configuration a été retenue.
                 foreach (Candidate candidate in group.Value)

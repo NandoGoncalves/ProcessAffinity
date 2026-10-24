@@ -62,7 +62,7 @@
                          Sans libellé au-dessus : deux cases nommées « CPU » et
                          « RAM » à côté de « Show services » se comprennent seules. -->
                     <CheckBox Content="CPU" Height="20" HorizontalAlignment="Left" Margin="112,17,0,0" Name="ShowCpuBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="True" ToolTip="Draw the CPU history on each tile" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
-                    <CheckBox Content="RAM" Height="20" HorizontalAlignment="Left" Margin="162,17,0,0" Name="ShowMemoryBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="False" ToolTip="Draw the memory history behind the CPU bars, and the gauge on the left edge" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
+                    <CheckBox Content="RAM" Height="20" HorizontalAlignment="Left" Margin="162,17,0,0" Name="ShowMemoryBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="True" ToolTip="Draw the memory history behind the CPU bars, and the gauge on the left edge" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
                     <!-- Champ de recherche à la manière du Gestionnaire des tâches
                          de Windows 11 : cadre arrondi, loupe à gauche, texte
                          indicatif à l'intérieur plutôt qu'un libellé au-dessus, et

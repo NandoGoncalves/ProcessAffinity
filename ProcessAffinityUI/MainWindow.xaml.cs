@@ -86,6 +86,18 @@ namespace ProcessAffinityUI
                 // connaître le panneau.
                 Configuration.DisplayPreferences.Changed += this.ApplyDisplayPreferences;
 
+                // Les deux valeurs chiffrées se posent une fois : on les relit
+                // au démarrage, et un changement repeint les tuiles sans
+                // attendre le relevé suivant.
+                bool showCpuValue;
+                bool showMemoryValue;
+
+                Configuration.DisplayPreferences.LoadValueDisplay(out showCpuValue, out showMemoryValue);
+
+                ProcessUserControl.IsCpuValueShown = showCpuValue;
+                ProcessUserControl.IsMemoryValueShown = showMemoryValue;
+                ProcessUserControl.ValueDisplayChanged = this.RefreshProcessUserControlsDisplay;
+
                 // Une reprise de veille ne doit pas compter sur le relevé
                 // suivant : le diff ordinaire compare sa référence au système et
                 // reste aveugle à une entrée qui a quitté cette référence sans
@@ -1970,6 +1982,7 @@ namespace ProcessAffinityUI
                          this.processWrapPanel.Children.OfType<ProcessUserControl>())
                 {
                     processUserControl.ApplyScale();
+                    processUserControl.ApplyTileBackground();
                 }
 
                 ReorderProcessWrapPanel();
@@ -2241,6 +2254,16 @@ namespace ProcessAffinityUI
         /// </summary>
         private void RefreshProcessUserControlsDisplay()
         {
+            // Le panneau n'existe pas encore pendant le chargement du XAML, et
+            // une case cochée d'emblée y lève son événement : c'est ce qui a
+            // emporté l'application au démarrage quand « RAM » est passée à
+            // cochée par défaut. Le garde sur les deux cases ne suffisait pas —
+            // elles existaient, le panneau non.
+            if (this.processWrapPanel == null)
+            {
+                return;
+            }
+
             foreach (ProcessUserControl processUserControl in this.processWrapPanel.Children.OfType<ProcessUserControl>())
             {
                 processUserControl.RefreshDisplay();

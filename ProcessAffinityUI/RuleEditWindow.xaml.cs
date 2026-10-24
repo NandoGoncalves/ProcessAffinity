@@ -1,4 +1,5 @@
 using System;
+using System.Windows.Media;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -133,6 +134,81 @@ namespace ProcessAffinityUI
             this.EfficiencyComboBox.Items.Add(new ComboItem { Label = "Left to Windows", Value = (int)EfficiencyModeEnum.SystemManaged });
             this.EfficiencyComboBox.Items.Add(new ComboItem { Label = "Throttled", Value = (int)EfficiencyModeEnum.Enabled });
             this.EfficiencyComboBox.Items.Add(new ComboItem { Label = "Never throttled", Value = (int)EfficiencyModeEnum.Disabled });
+
+            for (int scale = 1; scale <= DisplayPreferences.MaximumScale; scale++)
+            {
+                this.TileSizeComboBox.Items.Add(new ComboItem
+                {
+                    Label = scale == 1 ? "Normal" : scale == 2 ? "Double" : "Triple",
+                    Value = scale,
+                });
+            }
+        }
+
+        /// <summary>
+        /// Clé des préférences d'affichage de cet exécutable. La taille et la
+        /// couleur vivent dans <c>settings.json</c>, sous ce chemin — jamais
+        /// dans la règle elle-même.
+        /// </summary>
+        private string DisplayKey
+        {
+            get { return DisplayPreferences.GetKeyFromExecutablePath(this._original.ExecutablePath); }
+        }
+
+        private void LoadDisplayPreferences()
+        {
+            Select(this.TileSizeComboBox, DisplayPreferences.GetScaleByKey(this.DisplayKey));
+
+            RefreshBackgroundSwatch();
+        }
+
+        private void RefreshBackgroundSwatch()
+        {
+            Color? own = DisplayPreferences.GetBackgroundColorByKey(this.DisplayKey);
+
+            this.BackgroundSwatchBorder.Background = ColorPalette.Freeze(
+                own ?? ColorPalette.Get(ColorPalette.TileBackground));
+
+            this.BackgroundSwatchBorder.ToolTip = own == null
+                ? "Follows the general palette."
+                : "Own colour: " + ColorPalette.Format(own.Value);
+
+            this.GeneralBackgroundButton.IsEnabled = own != null;
+        }
+
+        private void ChooseBackgroundButton_Click(object sender, RoutedEventArgs e)
+        {
+            TileColorWindow window = new TileColorWindow(
+                "\"" + System.IO.Path.GetFileName(this._original.ExecutablePath) + "\"",
+                DisplayPreferences.GetBackgroundColorByKey(this.DisplayKey));
+
+            window.Owner = this;
+
+            if (window.ShowDialog() != true)
+            {
+                return;
+            }
+
+            ApplyBackground(window.Result);
+        }
+
+        private void GeneralBackgroundButton_Click(object sender, RoutedEventArgs e)
+        {
+            ApplyBackground(null);
+        }
+
+        private void ApplyBackground(Color? color)
+        {
+            string error;
+
+            if (!DisplayPreferences.TrySetBackgroundColorByKey(this.DisplayKey, color, out error))
+            {
+                MessageBox.Show(
+                    "The colour was applied, but could not be saved for next time.\r\n\r\n" + error,
+                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
+            RefreshBackgroundSwatch();
         }
 
         private void LoadRule(ProcessRule rule)
@@ -323,6 +399,15 @@ namespace ProcessAffinityUI
             };
 
             result.SetAffinityMask((nuint)mask);
+
+            // La taille retenue dans la configuration, enregistree la ou elle vit.
+            ComboItem tileSize = this.TileSizeComboBox.SelectedItem as ComboItem;
+
+            if (tileSize != null)
+            {
+                string scaleError;
+                DisplayPreferences.TrySetScaleByKey(this.DisplayKey, tileSize.Value, out scaleError);
+            }
 
             this.Result = result;
             this.DialogResult = true;

@@ -46,6 +46,9 @@ namespace ProcessAffinityUI
         private const string PinHeader = "Pin to front";
         private const string UnpinHeader = "Unpin from front";
         private const string TileSizeHeader = "Tile size";
+        private const string CpuValueHeader = "CPU value on tile";
+        private const string MemoryValueHeader = "RAM value on tile";
+        private const string BackgroundColorHeader = "Background colour";
 
         /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
@@ -116,9 +119,34 @@ namespace ProcessAffinityUI
         /// L'historique continue d'être décalé en mémoire dans les deux cas : une
         /// courbe rallumée doit repartir continue, et non d'un trou.
         /// </summary>
+        /// <summary>
+        /// Valeurs chiffrées en bas à droite de la zone des courbes. Les deux
+        /// sont éteintes par défaut : la tuile se lit d'abord par ses courbes,
+        /// et un chiffre sur chacune des quatre cents n'apporte rien à qui
+        /// balaie la grille des yeux.
+        ///
+        /// Les deux ensemble donnent « 190 MB - 3% ».
+        /// </summary>
+        public static bool IsCpuValueShown { get; set; }
+
+        public static bool IsMemoryValueShown { get; set; }
+
+        /// <summary>
+        /// Âge au-delà duquel une valeur cesse d'être présentée comme courante.
+        /// Trois relevés : un relevé manqué n'a rien d'anormal, trois veulent
+        /// dire que plus rien n'arrive pour cette entrée.
+        /// </summary>
+        private const double StaleValueSeconds = 3d;
+
+        /// <summary>Teinte d'une valeur qui n'est plus fraîche.</summary>
+        private static readonly Brush StaleValueBrush =
+            ColorPalette.Freeze(Color.FromRgb(0x8A, 0x8A, 0x8A));
+
+        private static readonly Brush FreshValueBrush = ColorPalette.Freeze(Colors.Black);
+
         public static bool AreCpuBarsShown { get; set; } = true;
 
-        public static bool AreMemoryBarsShown { get; set; } = false;
+        public static bool AreMemoryBarsShown { get; set; } = true;
 
         /// <summary>
         /// Historique glissant, du plus récent au plus ancien. Il vit ici et non
@@ -228,7 +256,7 @@ namespace ProcessAffinityUI
             // Les teintes réglables sont posées dès la construction : une tuile
             // créée après un changement de palette doit naître à la bonne
             // couleur, sans attendre un repeint général.
-            this.Background = ColorPalette.GetBrush(ColorPalette.TileBackground);
+            this.Background = GetTileBackgroundBrush();
             this.MemoryGaugeFill.Fill = ColorPalette.GetBrush(ColorPalette.MemoryGauge);
 
             ApplyScale();
@@ -318,6 +346,149 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
+        /// Fond de la tuile : la couleur propre au processus si elle existe,
+        /// sinon celle de la palette générale.
+        ///
+        /// Les pinceaux propres à un processus sont mis en cache par couleur et
+        /// gelés, comme ceux de la palette : deux tuiles du même programme
+        /// partagent le même objet, et une couleur par processus ne fait pas un
+        /// pinceau par tuile.
+        /// </summary>
+        /// <summary>
+        /// Reprend le fond de la tuile : la couleur propre au processus si elle
+        /// existe, sinon celle de la palette.
+        ///
+        /// Appelée après un changement de préférence d'affichage. Sans elle, une
+        /// couleur posée sur un processus ne se voyait qu'au prochain
+        /// rechargement : le réordonnancement et l'échelle étaient repris, le
+        /// fond non.
+        /// </summary>
+        public void ApplyTileBackground()
+        {
+            Brush wanted = GetTileBackgroundBrush();
+
+            if (!ReferenceEquals(this.Background, wanted))
+            {
+                this.Background = wanted;
+            }
+        }
+
+        private Brush GetTileBackgroundBrush()
+        {
+            Color? own = DisplayPreferences.GetBackgroundColor(this._process);
+
+            if (own == null)
+            {
+                return ColorPalette.GetBrush(ColorPalette.TileBackground);
+            }
+
+            lock (OwnBackgroundBrushes)
+            {
+                Brush brush;
+
+                if (!OwnBackgroundBrushes.TryGetValue(own.Value, out brush))
+                {
+                    brush = ColorPalette.Freeze(own.Value);
+                    OwnBackgroundBrushes[own.Value] = brush;
+                }
+
+                return brush;
+            }
+        }
+
+        private static readonly Dictionary<Color, Brush> OwnBackgroundBrushes =
+            new Dictionary<Color, Brush>();
+
+        /// <summary>
+        /// Valeur chiffrée, et son âge.
+        ///
+        /// Tout se fait ici, dans l'opération déjà postée par le rendu : aucun
+        /// aller-retour supplémentaire sur le dispatcher, ce qui est la
+        /// contrainte de l'étape 2b — une opération par tuile et par relevé.
+        ///
+        /// Une valeur qui n'est plus fraîche n'est pas effacée mais grisée :
+        /// effacer perdrait une information utile, puisqu'on veut justement
+        /// savoir qu'un processus était à 96 % juste avant de cesser de
+        /// répondre. Le gris dit « ceci n'est plus un relevé », et l'infobulle
+        /// dit depuis quand.
+        /// </summary>
+        private void RefreshValueLabel()
+        {
+            bool showCpuValue = IsCpuValueShown;
+            bool showMemoryValue = IsMemoryValueShown;
+
+            if (!showCpuValue && !showMemoryValue)
+            {
+                if (this.CPUUsageValueTextBlock.Visibility != Visibility.Collapsed)
+                {
+                    this.CPUUsageValueTextBlock.Visibility = Visibility.Collapsed;
+                }
+
+                return;
+            }
+
+            if (this.CPUUsageValueTextBlock.Visibility != Visibility.Visible)
+            {
+                this.CPUUsageValueTextBlock.Visibility = Visibility.Visible;
+            }
+
+            string text;
+
+            if (showCpuValue && showMemoryValue)
+            {
+                text = DescribeMemory(this._memoryBytes) + " - " + this._displayedValue + "%";
+            }
+            else if (showMemoryValue)
+            {
+                text = DescribeMemory(this._memoryBytes);
+            }
+            else
+            {
+                text = this._displayedValue + "%";
+            }
+
+            if (this.CPUUsageValueTextBlock.Text != text)
+            {
+                this.CPUUsageValueTextBlock.Text = text;
+            }
+
+            Brush wanted = IsSampleStale() ? StaleValueBrush : FreshValueBrush;
+
+            if (!ReferenceEquals(this.CPUUsageValueTextBlock.Foreground, wanted))
+            {
+                this.CPUUsageValueTextBlock.Foreground = wanted;
+            }
+        }
+
+        /// <summary>
+        /// Vrai quand le dernier relevé abouti de cette entrée a plus de
+        /// <see cref="StaleValueSeconds"/>. Une simple comparaison, faite dans
+        /// le rendu déjà posté.
+        /// </summary>
+        /// <summary>Âge lisible : secondes, minutes, puis heures.</summary>
+        private static string DescribeAge(double seconds)
+        {
+            if (seconds < 60d)
+            {
+                return ((int)seconds) + " s";
+            }
+
+            if (seconds < 3600d)
+            {
+                return ((int)(seconds / 60d)) + " min";
+            }
+
+            return (seconds / 3600d).ToString("F1") + " h";
+        }
+
+        private bool IsSampleStale()
+        {
+            double age = this._process == null ? 0d : this._process.SampleAgeSeconds;
+
+            return age > StaleValueSeconds;
+        }
+
+        /// <summary>
         /// Transformations d'échelle, gelées et partagées. Une par facteur, et
         /// non une par tuile : le même objet sert à toutes les tuiles d'un même
         /// agrandissement, comme les pinceaux de barre.
@@ -367,12 +538,17 @@ namespace ProcessAffinityUI
 
             Transform wanted = ScaleTransforms[scale];
 
-            // Réécrire la même transformation invaliderait la mise en page de
-            // la tuile pour rien, et cette méthode est appelée sur toutes les
-            // tuiles à chaque changement de préférence.
-            if (!ReferenceEquals(this.LayoutTransform, wanted))
+            // Sur CurvesHost et non sur la tuile : seules les courbes — barres
+            // de CPU, barres de mémoire et jauge — changent de taille. L'icône,
+            // le nom, son bandeau et la valeur chiffrée gardent la leur,
+            // puisqu'ils vivent hors de ce conteneur.
+            //
+            // Réécrire la même transformation invaliderait la mise en page pour
+            // rien, et cette méthode passe sur toutes les tuiles à chaque
+            // changement de préférence.
+            if (!ReferenceEquals(this.CurvesHost.LayoutTransform, wanted))
             {
-                this.LayoutTransform = wanted;
+                this.CurvesHost.LayoutTransform = wanted;
             }
         }
 
@@ -384,7 +560,7 @@ namespace ProcessAffinityUI
         /// </summary>
         public void ApplyPalette()
         {
-            this.Background = ColorPalette.GetBrush(ColorPalette.TileBackground);
+            this.Background = GetTileBackgroundBrush();
             this.MemoryGaugeFill.Fill = ColorPalette.GetBrush(ColorPalette.MemoryGauge);
 
             SetModifiableMarker(this._process);
@@ -842,7 +1018,8 @@ namespace ProcessAffinityUI
                 this.MemoryGaugeFill.Height = showMemory
                     ? GetMemoryBarHeight(this._memoryBytesHistory[0], memoryScale)
                     : 0d;
-                this.CPUUsageValueTextBlock.Text = this._displayedValue;
+                RefreshValueLabel();
+
                 this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
 
                 // Infobulle affichée : on la tient à jour. Test hors du rendu des
@@ -1159,6 +1336,142 @@ namespace ProcessAffinityUI
                 "pinning"));
 
             menu.Items.Add(CreateTileSizeMenu());
+
+            // Les deux valeurs chiffrées, et la couleur propre au processus.
+            menu.Items.Add(CreateValueItem(CpuValueHeader, IsCpuValueShown, CpuValueMenuItemClick));
+            menu.Items.Add(CreateValueItem(MemoryValueHeader, IsMemoryValueShown, MemoryValueMenuItemClick));
+            menu.Items.Add(CreateBackgroundColorMenu());
+        }
+
+        /// <summary>
+        /// Une des deux valeurs chiffrées. Ce réglage vaut pour toutes les
+        /// tuiles, comme les cases « CPU » et « RAM » de la barre du haut : un
+        /// chiffre affiché sur une tuile et pas sur sa voisine ne se
+        /// comparerait pas.
+        /// </summary>
+        private static MenuItem CreateValueItem(string header, bool isChecked, RoutedEventHandler handler)
+        {
+            MenuItem item = new MenuItem();
+            item.Header = header;
+            item.IsCheckable = true;
+            item.IsChecked = isChecked;
+            item.Click += handler;
+
+            return item;
+        }
+
+        private void CpuValueMenuItemClick(object sender, RoutedEventArgs e)
+        {
+            MenuItem item = sender as MenuItem;
+
+            if (item == null)
+            {
+                return;
+            }
+
+            IsCpuValueShown = item.IsChecked;
+
+            PersistValuePreferences();
+        }
+
+        private void MemoryValueMenuItemClick(object sender, RoutedEventArgs e)
+        {
+            MenuItem item = sender as MenuItem;
+
+            if (item == null)
+            {
+                return;
+            }
+
+            IsMemoryValueShown = item.IsChecked;
+
+            PersistValuePreferences();
+        }
+
+        private static void PersistValuePreferences()
+        {
+            string error;
+
+            // Ces deux réglages se posent une fois et doivent se retrouver au
+            // démarrage suivant, comme les couleurs et la taille des tuiles.
+            if (!DisplayPreferences.TrySetValueDisplay(IsCpuValueShown, IsMemoryValueShown, out error))
+            {
+                ReportSaveFailure(error);
+            }
+
+            ValueDisplayChanged();
+        }
+
+        /// <summary>
+        /// Prévenu quand l'affichage des valeurs change : la fenêtre repeint les
+        /// tuiles sans attendre le relevé suivant.
+        /// </summary>
+        public static Action ValueDisplayChanged = delegate { };
+
+        /// <summary>
+        /// Couleur de fond propre au processus. Grisée quand le chemin de
+        /// l'exécutable n'est pas lisible : il n'y a alors rien sur quoi
+        /// accrocher la couleur, exactement comme pour un réglage retenu.
+        /// </summary>
+        private MenuItem CreateBackgroundColorMenu()
+        {
+            MenuItem root = new MenuItem();
+            root.Header = BackgroundColorHeader;
+
+            if (!DisplayPreferences.CanRemember(this._process))
+            {
+                root.IsEnabled = false;
+                root.ToolTip = DisplayPreferences.DescribeWhyNotRememberable(this._process);
+                ToolTipService.SetShowOnDisabled(root, true);
+
+                return root;
+            }
+
+            MenuItem choose = new MenuItem();
+            choose.Header = "Choose…";
+            choose.Click += ChooseBackgroundColorClick;
+
+            root.Items.Add(choose);
+
+            MenuItem general = new MenuItem();
+            general.Header = "Use the general colour";
+            general.IsEnabled = DisplayPreferences.GetBackgroundColor(this._process) != null;
+            general.Click += ResetBackgroundColorClick;
+
+            root.Items.Add(general);
+
+            return root;
+        }
+
+        private void ChooseBackgroundColorClick(object sender, RoutedEventArgs e)
+        {
+            TileColorWindow window = new TileColorWindow(
+                "\"" + this._process.ProcessName + "\"",
+                DisplayPreferences.GetBackgroundColor(this._process));
+
+            window.Owner = Window.GetWindow(this);
+
+            if (window.ShowDialog() != true)
+            {
+                return;
+            }
+
+            string error;
+
+            if (!DisplayPreferences.TrySetBackgroundColor(this._process, window.Result, out error))
+            {
+                ReportSaveFailure(error);
+            }
+        }
+
+        private void ResetBackgroundColorClick(object sender, RoutedEventArgs e)
+        {
+            string error;
+
+            if (!DisplayPreferences.TrySetBackgroundColor(this._process, null, out error))
+            {
+                ReportSaveFailure(error);
+            }
         }
 
         /// <summary>
@@ -1309,7 +1622,8 @@ namespace ProcessAffinityUI
             {
                 case 1: return "Normal";
                 case 2: return "Double";
-                default: return scale + "×";
+                case 3: return "Triple";
+                default: return scale + " times";
             }
         }
 
@@ -1985,6 +2299,16 @@ namespace ProcessAffinityUI
                     // Gestionnaire des tâches. Le nommer évite de laisser croire
                     // qu'il s'agit du jeu de travail complet, bien plus grand.
                     "Memory: " + DescribeMemory(this._process.MemoryBytes) + " (private working set)";
+
+                // L'âge du dernier relevé, quand il n'est plus frais. C'est la
+                // seule chose qui distingue « 96 % maintenant » de « 96 % il y
+                // a huit heures », et c'est aussi ce qui rend visible une tuile
+                // restée en place alors que son processus a disparu.
+                if (IsSampleStale())
+                {
+                    text = text + "\r\nLast reading " + DescribeAge(this._process.SampleAgeSeconds)
+                           + " ago — this value is not current.";
+                }
 
                 if (!this._process.IsModifiable)
                 {
