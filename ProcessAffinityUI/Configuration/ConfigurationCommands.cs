@@ -159,10 +159,24 @@ namespace ProcessAffinityUI.Configuration
                 // avait sous les yeux en demandant l'enregistrement.
                 string scaleError;
 
+                string displayKey = DisplayPreferences.GetKeyFromExecutablePath(chosen.Rule.ExecutablePath);
+
                 DisplayPreferences.TrySetScaleByKey(
-                    DisplayPreferences.GetKeyFromExecutablePath(chosen.Rule.ExecutablePath),
+                    displayKey,
                     DisplayPreferences.GetScale(chosen.Instances[0]),
                     out scaleError);
+
+                // Les deux valeurs chiffrées suivent la même règle que la
+                // taille : réglées sur une tuile elles ne valent que pour elle,
+                // enregistrées dans une configuration elles valent pour toutes
+                // les occurrences de l'exécutable.
+                bool showCpuValue;
+                bool showMemoryValue;
+
+                DisplayPreferences.GetValueDisplay(chosen.Instances[0], out showCpuValue, out showMemoryValue);
+
+                DisplayPreferences.TrySetValueDisplayByKey(
+                    displayKey, showCpuValue, showMemoryValue, out scaleError);
 
                 // Toutes les instances de cet exécutable portent désormais la règle,
                 // et non la seule dont la configuration a été retenue.

@@ -77,6 +77,10 @@ namespace ProcessAffinityUI.Configuration
             /// <summary>Nom du service, pour distinguer deux entrées d'un même PID.</summary>
             public string ServiceName { get; set; }
 
+            public bool? ShowCpuValue { get; set; }
+
+            public bool? ShowMemoryValue { get; set; }
+
             public bool Pinned { get; set; }
 
             public int PinOrder { get; set; }
@@ -560,27 +564,141 @@ namespace ProcessAffinityUI.Configuration
         // ------------------------------------------- valeurs sur la tuile
 
         /// <summary>
-        /// Relit l'affichage des deux valeurs chiffrées depuis les préférences.
-        /// Appelé au démarrage : ce sont des réglages qu'on pose une fois.
+        /// Valeurs chiffrées affichées sur une tuile.
+        ///
+        /// Ce réglage était global : les deux entrées du menu contextuel
+        /// agissaient sur toutes les tuiles. Choisir explicitement une tuile
+        /// revient pourtant à écarter les autres, et l'argument de
+        /// comparabilité ne tient pas — un chiffre affiché sur une seule tuile
+        /// n'est pas moins lisible, il est simplement le seul.
+        ///
+        /// Même portée que la taille et la couleur : un geste direct ne vaut
+        /// que pour l'instance, un réglage enregistré vaut pour l'exécutable.
         /// </summary>
-        public static void LoadValueDisplay(out bool cpu, out bool memory)
+        public static void GetValueDisplay(Process process, out bool cpu, out bool memory)
         {
+            cpu = false;
+            memory = false;
+
+            if (process == null)
+            {
+                return;
+            }
+
             lock (SyncRoot)
             {
-                cpu = SettingsStore.Current.ShowCpuValueOnTile;
-                memory = SettingsStore.Current.ShowMemoryValueOnTile;
+                InstanceSetting instance = FindInstance(process, false);
+
+                // Trois états et non deux : « pas de réglage d'instance » se
+                // distingue de « réglage d'instance à faux », sans quoi une
+                // tuile ne pourrait jamais éteindre ce que l'exécutable allume.
+                if (instance != null && instance.ShowCpuValue != null)
+                {
+                    cpu = instance.ShowCpuValue.Value;
+                    memory = instance.ShowMemoryValue ?? false;
+
+                    return;
+                }
+
+                GetValueDisplayByKey(GetExecutableKey(process), out cpu, out memory);
             }
         }
 
-        public static bool TrySetValueDisplay(bool cpu, bool memory, out string error)
+        public static void GetValueDisplayByKey(string key, out bool cpu, out bool memory)
+        {
+            cpu = false;
+            memory = false;
+
+            if (key == null)
+            {
+                return;
+            }
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, string> stored = SettingsStore.Current.TileValues;
+
+                string text;
+
+                if (stored == null || !stored.TryGetValue(key, out text) || text == null)
+                {
+                    return;
+                }
+
+                cpu = text.IndexOf("cpu", StringComparison.OrdinalIgnoreCase) >= 0;
+                memory = text.IndexOf("ram", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+        }
+
+        public static void SetValueDisplayForInstance(Process process, bool cpu, bool memory)
         {
             lock (SyncRoot)
             {
-                SettingsStore.Current.ShowCpuValueOnTile = cpu;
-                SettingsStore.Current.ShowMemoryValueOnTile = memory;
+                InstanceSetting instance = FindInstance(process, true);
+
+                if (instance == null)
+                {
+                    return;
+                }
+
+                instance.ShowCpuValue = cpu;
+                instance.ShowMemoryValue = memory;
             }
 
-            return SettingsStore.TrySave(out error);
+            Raise();
+        }
+
+        public static bool TrySetValueDisplayForExecutable(
+            Process process, bool cpu, bool memory, out string error)
+        {
+            return TrySetValueDisplayByKey(GetExecutableKey(process), cpu, memory, out error);
+        }
+
+        public static bool TrySetValueDisplayByKey(string key, bool cpu, bool memory, out string error)
+        {
+            error = null;
+
+            if (key == null)
+            {
+                return true;
+            }
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, string> stored = SettingsStore.Current.TileValues
+                                                    ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                // Rien d'allumé ne laisse aucune trace : le fichier ne porte
+                // que ce qui s'écarte de l'ordinaire.
+                if (!cpu && !memory)
+                {
+                    if (!stored.Remove(key))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    string text = cpu && memory ? "cpu,ram" : cpu ? "cpu" : "ram";
+
+                    string current;
+
+                    if (stored.TryGetValue(key, out current) && current == text)
+                    {
+                        return true;
+                    }
+
+                    stored[key] = text;
+                }
+
+                SettingsStore.Current.TileValues = stored.Count == 0 ? null : stored;
+            }
+
+            bool written = SettingsStore.TrySave(out error);
+
+            Raise();
+
+            return written;
         }
 
         // ------------------------------------------------- couleur de fond

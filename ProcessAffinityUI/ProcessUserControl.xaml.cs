@@ -141,18 +141,6 @@ namespace ProcessAffinityUI
         /// courbe rallumée doit repartir continue, et non d'un trou.
         /// </summary>
         /// <summary>
-        /// Valeurs chiffrées en bas à droite de la zone des courbes. Les deux
-        /// sont éteintes par défaut : la tuile se lit d'abord par ses courbes,
-        /// et un chiffre sur chacune des quatre cents n'apporte rien à qui
-        /// balaie la grille des yeux.
-        ///
-        /// Les deux ensemble donnent « 190 MB - 3% ».
-        /// </summary>
-        public static bool IsCpuValueShown { get; set; }
-
-        public static bool IsMemoryValueShown { get; set; }
-
-        /// <summary>
         /// Âge au-delà duquel une valeur cesse d'être présentée comme courante.
         /// Trois relevés : un relevé manqué n'a rien d'anormal, trois veulent
         /// dire que plus rien n'arrive pour cette entrée.
@@ -435,8 +423,10 @@ namespace ProcessAffinityUI
         /// </summary>
         private void RefreshValueLabel()
         {
-            bool showCpuValue = IsCpuValueShown;
-            bool showMemoryValue = IsMemoryValueShown;
+            bool showCpuValue;
+            bool showMemoryValue;
+
+            DisplayPreferences.GetValueDisplay(this._process, out showCpuValue, out showMemoryValue);
 
             if (!showCpuValue && !showMemoryValue)
             {
@@ -1430,9 +1420,56 @@ namespace ProcessAffinityUI
             menu.Items.Add(CreateTileSizeMenu());
 
             // Les deux valeurs chiffrées, et la couleur propre au processus.
-            menu.Items.Add(CreateValueItem(CpuValueHeader, IsCpuValueShown, CpuValueMenuItemClick));
-            menu.Items.Add(CreateValueItem(MemoryValueHeader, IsMemoryValueShown, MemoryValueMenuItemClick));
+            bool showCpuValue;
+            bool showMemoryValue;
+
+            DisplayPreferences.GetValueDisplay(this._process, out showCpuValue, out showMemoryValue);
+
+            // Ces deux entrées suivent le routage de sélection, comme les
+            // autres commandes du menu : des tuiles cochées, et l'action porte
+            // sur elles.
+            string valueScope = GetDisplayScopeSuffix();
+
+            menu.Items.Add(CreateValueItem(
+                CpuValueHeader + valueScope, showCpuValue, CpuValueMenuItemClick));
+
+            menu.Items.Add(CreateValueItem(
+                MemoryValueHeader + valueScope, showMemoryValue, MemoryValueMenuItemClick));
+
             menu.Items.Add(CreateBackgroundColorMenu());
+        }
+
+        /// <summary>
+        /// Portée annoncée dans l'en-tête des réglages d'affichage qui suivent
+        /// la sélection.
+        /// </summary>
+        private string GetDisplayScopeSuffix()
+        {
+            int count = GetDisplayTargets().Count;
+
+            return count > 1 ? " (" + count + " selected)" : string.Empty;
+        }
+
+        /// <summary>
+        /// Cibles d'un réglage d'affichage : la sélection si elle n'est pas
+        /// vide, sinon la seule tuile visée.
+        ///
+        /// Processus et services confondus, contrairement aux commandes
+        /// d'affinité ou de service : afficher une valeur ne dépend ni du genre
+        /// de l'entrée ni des droits.
+        /// </summary>
+        private List<Process> GetDisplayTargets()
+        {
+            List<Process> targets = GetSelectedProcesses();
+
+            targets.AddRange(GetSelectedServices());
+
+            if (targets.Count == 0 && this._process != null)
+            {
+                targets.Add(this._process);
+            }
+
+            return targets;
         }
 
         /// <summary>
@@ -1454,41 +1491,48 @@ namespace ProcessAffinityUI
 
         private void CpuValueMenuItemClick(object sender, RoutedEventArgs e)
         {
-            MenuItem item = sender as MenuItem;
-
-            if (item == null)
-            {
-                return;
-            }
-
-            IsCpuValueShown = item.IsChecked;
-
-            PersistValuePreferences();
+            ApplyValueDisplay(sender as MenuItem, true);
         }
 
         private void MemoryValueMenuItemClick(object sender, RoutedEventArgs e)
         {
-            MenuItem item = sender as MenuItem;
+            ApplyValueDisplay(sender as MenuItem, false);
+        }
 
+        /// <summary>
+        /// Pose l'une des deux valeurs sur chaque cible, en gardant l'autre
+        /// telle qu'elle est pour cette cible : cocher « CPU » ne doit pas
+        /// éteindre la RAM d'une tuile qui l'affichait.
+        ///
+        /// Réglage d'instance : il ne vaut que pour cette instance et disparaît
+        /// avec elle. « Save configuration » l'enregistre pour l'exécutable.
+        /// </summary>
+        private void ApplyValueDisplay(MenuItem item, bool isCpu)
+        {
             if (item == null)
             {
                 return;
             }
 
-            IsMemoryValueShown = item.IsChecked;
+            bool wanted = item.IsChecked;
 
-            PersistValuePreferences();
-        }
-
-        private static void PersistValuePreferences()
-        {
-            string error;
-
-            // Ces deux réglages se posent une fois et doivent se retrouver au
-            // démarrage suivant, comme les couleurs et la taille des tuiles.
-            if (!DisplayPreferences.TrySetValueDisplay(IsCpuValueShown, IsMemoryValueShown, out error))
+            foreach (Process target in GetDisplayTargets())
             {
-                ReportSaveFailure(error);
+                bool cpu;
+                bool memory;
+
+                DisplayPreferences.GetValueDisplay(target, out cpu, out memory);
+
+                if (isCpu)
+                {
+                    cpu = wanted;
+                }
+                else
+                {
+                    memory = wanted;
+                }
+
+                DisplayPreferences.SetValueDisplayForInstance(target, cpu, memory);
             }
 
             ValueDisplayChanged();

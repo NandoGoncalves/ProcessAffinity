@@ -271,10 +271,10 @@ namespace ProcessAffinityUI.Configuration
         public Dictionary<string, string> TileBackgrounds { get; set; }
 
         /// <summary>
-        /// Valeurs chiffrées affichées sur chaque tuile. Éteintes par défaut.
+        /// Valeurs chiffrées affichées sur une tuile, par clé d'exécutable :
+        /// « cpu », « ram » ou « cpu,ram ». Null quand aucune entrée n'en
+        /// porte ; éteintes par défaut.
         /// </summary>
-        public bool ShowCpuValueOnTile { get; set; }
-
-        public bool ShowMemoryValueOnTile { get; set; }
+        public Dictionary<string, string> TileValues { get; set; }
     }
 }

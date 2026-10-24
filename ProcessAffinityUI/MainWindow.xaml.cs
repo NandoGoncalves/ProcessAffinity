@@ -125,13 +125,9 @@ namespace ProcessAffinityUI
                 // Les deux valeurs chiffrées se posent une fois : on les relit
                 // au démarrage, et un changement repeint les tuiles sans
                 // attendre le relevé suivant.
-                bool showCpuValue;
-                bool showMemoryValue;
-
-                Configuration.DisplayPreferences.LoadValueDisplay(out showCpuValue, out showMemoryValue);
-
-                ProcessUserControl.IsCpuValueShown = showCpuValue;
-                ProcessUserControl.IsMemoryValueShown = showMemoryValue;
+                // Les valeurs chiffrées sont désormais propres à chaque tuile :
+                // rien à relire globalement, seulement de quoi repeindre quand
+                // elles changent.
                 ProcessUserControl.ValueDisplayChanged = this.RefreshProcessUserControlsDisplay;
 
                 // Une reprise de veille ne doit pas compter sur le relevé
@@ -223,6 +219,12 @@ namespace ProcessAffinityUI
             // le tri porte sur les tuiles en place, et il vaut donc aussi pour
             // les reconstructions — bascule de « Show services », rechargement,
             // retour depuis la zone de notification.
+            foreach (ProcessUserControl created in
+                     this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                MarkReserved(created);
+            }
+
             ReorderProcessWrapPanel();
 
             SetCounters();
@@ -1603,6 +1605,8 @@ namespace ProcessAffinityUI
                 }
             }
 
+            MarkReserved(processUserControl);
+
             this.processWrapPanel.Children.Insert(index, processUserControl);
 
             // Les filtres s'appliquent aussi à ce qui apparaît après le
@@ -1636,6 +1640,8 @@ namespace ProcessAffinityUI
                     break;
                 }
             }
+
+            MarkReserved(processUserControl);
 
             this.processWrapPanel.Children.Insert(index, processUserControl);
 
@@ -2023,6 +2029,8 @@ namespace ProcessAffinityUI
                 {
                     processUserControl.ApplyScale();
                     processUserControl.ApplyTileBackground();
+
+                    MarkReserved(processUserControl);
                 }
 
                 ReorderProcessWrapPanel();
@@ -2104,6 +2112,24 @@ namespace ProcessAffinityUI
         /// Bloc d'appartenance : les processus d'abord, les services ensuite,
         /// comme au chargement.
         /// </summary>
+        /// <summary>
+        /// Dit au panneau qu'une tuile appartient au bloc de tête réservé.
+        ///
+        /// Le panneau ne connaît pas l'épinglage, et n'a pas à le connaître :
+        /// il sait seulement qu'un début de pavage lui est réservé. Sans cette
+        /// marque, le comblement des trous place une tuile ordinaire devant une
+        /// épinglée qui n'a pas trouvé la place en fin de rangée.
+        /// </summary>
+        private static void MarkReserved(ProcessUserControl processUserControl)
+        {
+            bool reserved = GetPinRank(processUserControl) != int.MaxValue;
+
+            if (TilePanel.GetIsReserved(processUserControl) != reserved)
+            {
+                TilePanel.SetIsReserved(processUserControl, reserved);
+            }
+        }
+
         private static int GetBlockRank(UIElement element)
         {
             ProcessUserControl processUserControl = element as ProcessUserControl;

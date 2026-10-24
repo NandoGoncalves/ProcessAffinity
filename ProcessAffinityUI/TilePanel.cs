@@ -68,8 +68,42 @@ namespace ProcessAffinityUI
             public int Row;
         }
 
+        /// <summary>
+        /// Marque une tuile comme appartenant au début réservé du pavage.
+        ///
+        /// Sans cette réserve, le comblement des trous double les épinglées.
+        /// Mesuré : dix tuiles épinglées dont la dernière en triple, onze
+        /// colonnes — la triple ne tient pas dans les deux colonnes restantes,
+        /// passe à la rangée suivante, et deux tuiles non épinglées comblent
+        /// les colonnes 9 et 10 devant elle. L'ordre à l'écran cessait alors
+        /// d'être celui de la liste, sur lequel repose « Pin to front ».
+        ///
+        /// Les non réservées ne peuvent donc pas se placer avant la dernière
+        /// rangée qu'occupe une réservée. Cela laisse des trous dans le bloc de
+        /// tête, qui est petit, plutôt que de défaire l'épinglage.
+        /// </summary>
+        public static readonly DependencyProperty IsReservedProperty =
+            DependencyProperty.RegisterAttached(
+                "IsReserved",
+                typeof(bool),
+                typeof(TilePanel),
+                new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsParentMeasure));
+
+        public static void SetIsReserved(UIElement element, bool value)
+        {
+            element.SetValue(IsReservedProperty, value);
+        }
+
+        public static bool GetIsReserved(UIElement element)
+        {
+            return (bool)element.GetValue(IsReservedProperty);
+        }
+
         /// <summary>Nombre de colonnes du dernier pavage. Pour les vérifications.</summary>
         public int Columns { get; private set; }
+
+        /// <summary>Première rangée ouverte aux tuiles non réservées.</summary>
+        public int ReservedRows { get; private set; }
 
         /// <summary>Nombre de rangées occupées. Pour les vérifications.</summary>
         public int Rows { get; private set; }
@@ -133,11 +167,27 @@ namespace ProcessAffinityUI
 
             Occupancy occupancy = new Occupancy(columns);
 
+            // Le bloc de tête est réservé : tant qu'on place des tuiles
+            // réservées, tout l'espace est ouvert ; dès la première non
+            // réservée, le pavage repart sous la dernière rangée qu'elles
+            // occupent.
+            int minimumRow = 0;
+            int lastReservedRow = -1;
+            bool inReservedBlock = true;
+
             foreach (UIElement child in this.InternalChildren)
             {
                 if (child.Visibility != Visibility.Visible)
                 {
                     continue;
+                }
+
+                bool reserved = GetIsReserved(child);
+
+                if (inReservedBlock && !reserved)
+                {
+                    inReservedBlock = false;
+                    minimumRow = lastReservedRow + 1;
                 }
 
                 Size desired = child.DesiredSize;
@@ -155,11 +205,22 @@ namespace ProcessAffinityUI
                 int column;
                 int row;
 
-                occupancy.Place(width, height, out column, out row);
+                occupancy.Place(width, height, minimumRow, out column, out row);
+
+                if (reserved && inReservedBlock)
+                {
+                    int bottom = row + height - 1;
+
+                    if (bottom > lastReservedRow)
+                    {
+                        lastReservedRow = bottom;
+                    }
+                }
 
                 this._placements.Add(new Placement { Element = child, Column = column, Row = row });
             }
 
+            this.ReservedRows = lastReservedRow + 1;
             this.Rows = occupancy.UsedRows;
 
             return new Size(columns * cellWidth, occupancy.UsedRows * cellHeight);
@@ -224,9 +285,11 @@ namespace ProcessAffinityUI
                 get { return this._rows.Count; }
             }
 
-            public void Place(int width, int height, out int column, out int row)
+            public void Place(int width, int height, int minimumRow, out int column, out int row)
             {
-                for (int candidateRow = this._firstFreeRow; ; candidateRow++)
+                int start = this._firstFreeRow > minimumRow ? this._firstFreeRow : minimumRow;
+
+                for (int candidateRow = start; ; candidateRow++)
                 {
                     EnsureRow(candidateRow + height - 1);
 
