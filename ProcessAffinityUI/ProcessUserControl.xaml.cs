@@ -63,8 +63,23 @@ namespace ProcessAffinityUI
         /// <summary>Bordure de la tuile, 3 px de chaque côté (cf. XAML).</summary>
         private const double TileBorder = 6d;
 
-        /// <summary>Hauteur du bandeau de nom (seconde rangée du XAML).</summary>
+        /// <summary>Hauteur du bandeau de nom à l'échelle normale (XAML).</summary>
         private const double BandHeight = 27d;
+
+        /// <summary>
+        /// Hauteur d'une ligne du bandeau, posée explicitement dans le XAML.
+        ///
+        /// Le bandeau gagne une ligne par cran : une tuile triple en offre
+        /// trois. Le nom garde sa taille — c'est la place qui augmente, pas les
+        /// caractères — et un libellé de service « Service - Hôte », qui atteint
+        /// 71 caractères sur cette machine et réclame 339 px, tient alors
+        /// largement là où une seule ligne de 318 px le tronquait encore.
+        ///
+        /// Ce que cela coûte : treize pixels de courbes par cran, soit 9 % de
+        /// leur hauteur au double et 11 % au triple. Un nom illisible sur une
+        /// tuile qu'on a justement agrandie pour la regarder coûtait plus.
+        /// </summary>
+        private const double BandLineHeight = 13d;
 
         /// <summary>
         /// Taille d'une tuile à l'échelle normale, et donc de la cellule du
@@ -529,7 +544,7 @@ namespace ProcessAffinityUI
             for (int scale = 1; scale <= DisplayPreferences.MaximumScale; scale++)
             {
                 double verticalFactor =
-                    ((NormalTileHeight * scale) - BandHeight - TileBorder) / CPUUsageBarHeight;
+                    ((NormalTileHeight * scale) - GetBandHeight(scale) - TileBorder) / CPUUsageBarHeight;
 
                 // À l'échelle normale le calcul rend exactement 1 : on garde
                 // l'identité, qui n'est pas une transformation à appliquer.
@@ -546,6 +561,19 @@ namespace ProcessAffinityUI
             }
 
             return transforms;
+        }
+
+        /// <summary>
+        /// Hauteur du bandeau pour une échelle : une ligne de plus par cran.
+        /// </summary>
+        private static double GetBandHeight(int scale)
+        {
+            if (scale < 1)
+            {
+                scale = 1;
+            }
+
+            return BandHeight + (BandLineHeight * (scale - 1));
         }
 
         private static Transform GetCurvesTransform(int scale)
@@ -611,6 +639,16 @@ namespace ProcessAffinityUI
             if (this.ProcessIDlabel.Width != innerWidth)
             {
                 this.ProcessIDlabel.Width = innerWidth;
+            }
+
+            // Une ligne de bandeau par cran. La largeur reste imposée par le
+            // bloc ; seule la hauteur suit, et elle est retirée d'autant aux
+            // courbes par la transformation ci-dessous.
+            double bandHeight = GetBandHeight(scale);
+
+            if (this.BandRow.Height.Value != bandHeight)
+            {
+                this.BandRow.Height = new GridLength(bandHeight);
             }
 
             if (this.CPUUsageValueTextBlock.MaxWidth != innerWidth)
@@ -1403,11 +1441,15 @@ namespace ProcessAffinityUI
 
             menu.Items.Add(new Separator());
 
-            // Épinglage de cette instance seulement. Le geste direct sur une
-            // tuile ne vaut que pour elle et disparaît avec le processus ; ce
-            // qui doit survivre passe par « Remember ».
+            // Épinglage. Le geste direct ne vaut que pour l'instance et
+            // disparaît avec le processus ; ce qui doit survivre passe par
+            // « Remember ». La portée, elle, est celle de la sélection, comme
+            // pour toutes les autres commandes de ce menu.
+            string displayScope = GetDisplayScopeSuffix();
+
             MenuItem pinItem = new MenuItem();
-            pinItem.Header = DisplayPreferences.IsPinned(this._process) ? UnpinHeader : PinHeader;
+            pinItem.Header = (DisplayPreferences.IsPinned(this._process) ? UnpinHeader : PinHeader)
+                             + displayScope;
 
             ((MenuItem)menu.Items[menu.Items.Add(pinItem)]).Click +=
                 new RoutedEventHandler(ProcessUserControlContextMenuClick);
@@ -1552,7 +1594,7 @@ namespace ProcessAffinityUI
         private MenuItem CreateBackgroundColorMenu()
         {
             MenuItem root = new MenuItem();
-            root.Header = BackgroundColorHeader;
+            root.Header = BackgroundColorHeader + GetDisplayScopeSuffix();
 
             if (!DisplayPreferences.CanRemember(this._process))
             {
@@ -1592,22 +1634,16 @@ namespace ProcessAffinityUI
                 return;
             }
 
-            string error;
+            Color? chosen = window.Result;
 
-            if (!DisplayPreferences.TrySetBackgroundColor(this._process, window.Result, out error))
-            {
-                ReportSaveFailure(error);
-            }
+            ApplyToDisplayTargets("Background colour", (Process target, out string error) =>
+                DisplayPreferences.TrySetBackgroundColor(target, chosen, out error));
         }
 
         private void ResetBackgroundColorClick(object sender, RoutedEventArgs e)
         {
-            string error;
-
-            if (!DisplayPreferences.TrySetBackgroundColor(this._process, null, out error))
-            {
-                ReportSaveFailure(error);
-            }
+            ApplyToDisplayTargets("General colour", (Process target, out string error) =>
+                DisplayPreferences.TrySetBackgroundColor(target, null, out error));
         }
 
         /// <summary>
@@ -1626,11 +1662,18 @@ namespace ProcessAffinityUI
             item.IsCheckable = true;
             item.IsChecked = isRemembered;
 
+            // Avec une sélection, l'entrée annonce la sélection comme les
+            // autres ; seule, elle annonce le nombre d'instances que la portée
+            // exécutable emporterait. Deux décomptes différents, et le libellé
+            // doit dire lequel.
+            int selected = GetDisplayTargets().Count;
             int affected = CountEntriesSharingExecutable();
 
-            item.Header = affected > 1
-                ? "Remember " + subject + " for all " + affected + " instances"
-                : "Remember " + subject + " for this program";
+            item.Header = selected > 1
+                ? "Remember " + subject + " for the " + selected + " selected programs"
+                : affected > 1
+                    ? "Remember " + subject + " for all " + affected + " instances"
+                    : "Remember " + subject + " for this program";
 
             if (!DisplayPreferences.CanRemember(this._process))
             {
@@ -1680,7 +1723,7 @@ namespace ProcessAffinityUI
         private MenuItem CreateTileSizeMenu()
         {
             MenuItem root = new MenuItem();
-            root.Header = TileSizeHeader;
+            root.Header = TileSizeHeader + GetDisplayScopeSuffix();
 
             int current = DisplayPreferences.GetScale(this._process);
 
@@ -1715,12 +1758,10 @@ namespace ProcessAffinityUI
                 return;
             }
 
-            string error;
+            bool wanted = item.IsChecked;
 
-            if (!DisplayPreferences.TrySetPinnedForExecutable(this._process, item.IsChecked, out error))
-            {
-                ReportSaveFailure(error);
-            }
+            ApplyToDisplayTargets("Remembered pinning", (Process target, out string error) =>
+                DisplayPreferences.TrySetPinnedForExecutable(target, wanted, out error));
         }
 
         private void RememberScaleMenuItemClick(object sender, RoutedEventArgs e)
@@ -1732,17 +1773,52 @@ namespace ProcessAffinityUI
                 return;
             }
 
-            // On retient la taille courante de la tuile, celle que l'utilisateur
-            // vient de régler. Décocher oublie le réglage du programme et rend
-            // la tuile à sa taille d'instance.
-            int scale = item.IsChecked ? DisplayPreferences.GetScale(this._process) : 1;
+            bool wanted = item.IsChecked;
 
-            string error;
+            // On retient la taille courante de chaque cible, celle que
+            // l'utilisateur vient de régler. Décocher oublie le réglage du
+            // programme et rend la tuile à sa taille d'instance.
+            ApplyToDisplayTargets("Remembered size", (Process target, out string error) =>
+                DisplayPreferences.TrySetScaleForExecutable(
+                    target, wanted ? DisplayPreferences.GetScale(target) : 1, out error));
+        }
 
-            if (!DisplayPreferences.TrySetScaleForExecutable(this._process, scale, out error))
+        private delegate bool DisplayAction(Process target, out string error);
+
+        /// <summary>
+        /// Applique un réglage persistant à toute la sélection, et rend compte
+        /// de ce qui n'a pas pu l'être.
+        ///
+        /// Une entrée dont le chemin d'exécutable n'est pas lisible — près des
+        /// deux tiers en session non élevée — n'a rien sur quoi accrocher un
+        /// réglage persistant. On applique ce qui peut l'être et on le dit,
+        /// plutôt que d'échouer en bloc ou en silence.
+        /// </summary>
+        private void ApplyToDisplayTargets(string subject, DisplayAction action)
+        {
+            List<string> skipped = new List<string>();
+            int applied = 0;
+
+            foreach (Process target in GetDisplayTargets())
             {
-                ReportSaveFailure(error);
+                if (!DisplayPreferences.CanRemember(target))
+                {
+                    skipped.Add(target.ProcessName);
+                    continue;
+                }
+
+                string error;
+
+                if (!action(target, out error))
+                {
+                    ReportSaveFailure(error);
+                    return;
+                }
+
+                applied++;
             }
+
+            ReportDisplayApplication(subject, applied, skipped);
         }
 
         private static void ReportSaveFailure(string error)
@@ -1772,9 +1848,12 @@ namespace ProcessAffinityUI
                 return;
             }
 
-            // Cette instance seulement, et rien n'est écrit : c'est « Remember »
-            // qui fait durer.
-            DisplayPreferences.SetScaleForInstance(this._process, (int)item.Tag);
+            // Réglage d'instance, et rien n'est écrit : c'est « Remember » qui
+            // fait durer. Porté sur toute la sélection, comme le reste du menu.
+            foreach (Process target in GetDisplayTargets())
+            {
+                DisplayPreferences.SetScaleForInstance(target, (int)item.Tag);
+            }
         }
 
         /// <summary>
@@ -2047,23 +2126,62 @@ namespace ProcessAffinityUI
         /// </summary>
         private void TogglePin()
         {
+            // Le verbe est décidé par la tuile visée — c'est elle qu'on a
+            // désignée —, puis appliqué à toute la sélection.
             bool pinned = DisplayPreferences.IsPinned(this._process);
 
-            // Désépingler une tuile que le programme épingle de façon
-            // persistante ne peut pas se faire par le seul réglage d'instance :
-            // il faut aussi oublier le réglage du programme, sans quoi la tuile
-            // remonterait aussitôt et le geste n'aurait aucun effet visible.
-            if (pinned && DisplayPreferences.IsPinnedForExecutable(this._process))
+            foreach (Process target in GetDisplayTargets())
             {
-                string error;
-
-                if (!DisplayPreferences.TrySetPinnedForExecutable(this._process, false, out error))
+                // Désépingler une tuile que le programme épingle de façon
+                // persistante ne peut pas se faire par le seul réglage
+                // d'instance : il faut aussi oublier le réglage du programme,
+                // sans quoi la tuile remonterait aussitôt et le geste n'aurait
+                // aucun effet visible.
+                if (pinned && DisplayPreferences.IsPinnedForExecutable(target))
                 {
-                    ReportSaveFailure(error);
+                    string error;
+
+                    if (!DisplayPreferences.TrySetPinnedForExecutable(target, false, out error))
+                    {
+                        ReportSaveFailure(error);
+                    }
                 }
+
+                DisplayPreferences.SetPinnedForInstance(target, !pinned);
+            }
+        }
+
+        /// <summary>
+        /// Rapport d'application partielle pour les réglages d'affichage.
+        /// Silencieux quand tout a pu être appliqué, comme les autres.
+        /// </summary>
+        private static void ReportDisplayApplication(
+            string subject, int appliedCount, List<string> skippedNames)
+        {
+            if (skippedNames.Count == 0)
+            {
+                return;
             }
 
-            DisplayPreferences.SetPinnedForInstance(this._process, !pinned);
+            const int maximumListed = 15;
+
+            StringBuilder builder = new StringBuilder();
+
+            builder.Append(subject).Append(" applied to ").Append(appliedCount)
+                   .Append(appliedCount == 1 ? " entry." : " entries.").Append("\r\n\r\n")
+                   .Append(skippedNames.Count)
+                   .Append(skippedNames.Count == 1 ? " entry has no" : " entries have no")
+                   .Append(" readable executable path, so nothing can be saved for ")
+                   .Append(skippedNames.Count == 1 ? "it" : "them").Append(":\r\n")
+                   .Append(string.Join(", ", skippedNames.Take(maximumListed)));
+
+            if (skippedNames.Count > maximumListed)
+            {
+                builder.Append(", and ").Append(skippedNames.Count - maximumListed).Append(" more");
+            }
+
+            MessageBox.Show(builder.ToString(), ApplicationName,
+                MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         /// <summary>
