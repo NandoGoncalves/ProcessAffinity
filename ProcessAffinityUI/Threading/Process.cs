@@ -691,6 +691,16 @@ namespace ProcessAffinityUI.Threading
             return processPriorityEnum;
         }
 
+        /// <summary>
+        /// Date de création du processus, telle que le relevé système la donne.
+        /// Vaut zéro tant qu'aucun relevé n'a eu lieu — moins d'une seconde
+        /// après l'apparition de l'entrée.
+        ///
+        /// Avec le PID, elle forme l'identité d'une instance : c'est ce couple
+        /// qui distingue un PID réutilisé de celui qu'il portait avant.
+        /// </summary>
+        public long CreateTime { get { return this._lastCreateTime; } }
+
         public bool IsProcessMonitored { get; private set; }
 
         public bool IsService { get { return this._targetInstance == TargetInstanceEnum.Win32_Service ? true : false; } }

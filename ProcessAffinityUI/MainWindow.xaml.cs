@@ -86,6 +86,12 @@ namespace ProcessAffinityUI
                 // connaître le panneau.
                 Configuration.DisplayPreferences.Changed += this.ApplyDisplayPreferences;
 
+                // Une reprise de veille ne doit pas compter sur le relevé
+                // suivant : le diff ordinaire compare sa référence au système et
+                // reste aveugle à une entrée qui a quitté cette référence sans
+                // quitter la liste. On resynchronise franchement.
+                Microsoft.Win32.SystemEvents.PowerModeChanged += this.PowerModeChanged;
+
                 ProcessUserControl.ClearSelectionRequested = this.ClearSelection;
                 ProcessUserControl.SelectionChanged = this.SetSelectedCounter;
                 ConfigurationCommands.MarkersChanged = this.RefreshProcessUserControls;
@@ -1920,6 +1926,27 @@ namespace ProcessAffinityUI
         /// </summary>
         private void ApplyDisplayPreferences()
         {
+            // L'événement peut venir du thread d'échantillonnage : c'est lui qui
+            // oublie les réglages des instances mortes, à chaque relevé. Toucher
+            // le panneau depuis là lèverait une InvalidOperationException.
+            if (!this.processWrapPanel.Dispatcher.CheckAccess())
+            {
+                if (this._isShuttingDown)
+                {
+                    return;
+                }
+
+                this.processWrapPanel.Dispatcher.BeginInvoke(
+                    new Action(this.ApplyDisplayPreferences));
+
+                return;
+            }
+
+            if (this._isShuttingDown)
+            {
+                return;
+            }
+
             // Épingler une entrée unique déplace une tuile et ne se voit pas.
             // Mais l'identité est le nom : épingler « svchost.exe » en remonte
             // quatre-vingt-quinze d'un coup, et cela dépasse alors les 200 ms
@@ -1948,11 +1975,18 @@ namespace ProcessAffinityUI
         {
             List<UIElement> current = this.processWrapPanel.Children.OfType<UIElement>().ToList();
 
+            // Le tri secondaire est l'ordre naturel — processus puis services,
+            // alphabétique dans chaque bloc —, et non l'index courant.
+            //
+            // Avec l'index courant, désépingler ne remettait rien en place : la
+            // tuile perdait son rang d'épinglage mais gardait l'index 0, donc
+            // la première place parmi les non épinglées. Elle restait en tête
+            // jusqu'au prochain « Load », qui seul recalculait l'ordre. C'est
+            // ce même ordre naturel que maintient InsertProcessUserControl.
             List<UIElement> wanted = current
-                .Select((element, index) => new { element, index })
-                .OrderBy(entry => GetPinRank(entry.element))
-                .ThenBy(entry => entry.index)
-                .Select(entry => entry.element)
+                .OrderBy(GetPinRank)
+                .ThenBy(GetBlockRank)
+                .ThenBy(GetNaturalName, StringComparer.CurrentCulture)
                 .ToList();
 
             if (current.SequenceEqual(wanted))
@@ -1998,6 +2032,39 @@ namespace ProcessAffinityUI
             int rank = Configuration.DisplayPreferences.GetPinIndex(processUserControl.Process);
 
             return rank < 0 ? int.MaxValue : rank;
+        }
+
+        /// <summary>
+        /// Bloc d'appartenance : les processus d'abord, les services ensuite,
+        /// comme au chargement.
+        /// </summary>
+        private static int GetBlockRank(UIElement element)
+        {
+            ProcessUserControl processUserControl = element as ProcessUserControl;
+
+            if (processUserControl == null || processUserControl.Process == null)
+            {
+                return 2;
+            }
+
+            return processUserControl.Process.IsService ? 1 : 0;
+        }
+
+        /// <summary>
+        /// Nom servant au tri alphabétique. Le même que celui qu'emploie
+        /// <see cref="InsertProcessUserControl"/>, pour que les deux chemins ne
+        /// puissent pas produire deux ordres différents.
+        /// </summary>
+        private static string GetNaturalName(UIElement element)
+        {
+            ProcessUserControl processUserControl = element as ProcessUserControl;
+
+            if (processUserControl == null || processUserControl.Process == null)
+            {
+                return string.Empty;
+            }
+
+            return processUserControl.Process.ProcessName ?? string.Empty;
         }
 
         private void ApplyPaletteToProcessUserControls()
@@ -2065,6 +2132,54 @@ namespace ProcessAffinityUI
             // détachement, la fenêtre fermée y resterait accrochée, et une
             // sonde qui en ouvre plusieurs les verrait toutes réagir.
             Configuration.DisplayPreferences.Changed -= this.ApplyDisplayPreferences;
+
+            // SystemEvents tient ses abonnés par une référence forte, dans un
+            // thread à lui : ne pas se détacher maintiendrait la fenêtre en vie
+            // après sa fermeture, et la resynchronisation s'exécuterait sur une
+            // liste abandonnée.
+            Microsoft.Win32.SystemEvents.PowerModeChanged -= this.PowerModeChanged;
+        }
+
+        /// <summary>
+        /// Resynchronise à la reprise de veille.
+        ///
+        /// Le travail a lieu sur un thread de fond : <c>PowerModeChanged</c>
+        /// arrive sur le thread de SystemEvents, et la réconciliation fait un
+        /// appel système puis retire des entrées — rien qui doive se faire sur
+        /// le thread de l'interface, et rien qui doive retarder le retour de
+        /// Windows.
+        /// </summary>
+        private void PowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+        {
+            if (e.Mode != Microsoft.Win32.PowerModes.Resume || this._isShuttingDown)
+            {
+                return;
+            }
+
+            Processes processes = this._processes;
+            Processes services = this._services;
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    if (processes != null)
+                    {
+                        processes.Resynchronize();
+                    }
+
+                    if (services != null)
+                    {
+                        services.Resynchronize();
+                    }
+                }
+                catch
+                {
+                    // Une resynchronisation en échec ne doit pas emporter
+                    // l'application : le trou d'horloge du relevé suivant la
+                    // redéclenchera de toute façon.
+                }
+            });
         }
 
         /// <summary>
