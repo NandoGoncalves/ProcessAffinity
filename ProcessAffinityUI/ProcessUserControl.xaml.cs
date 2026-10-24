@@ -2702,26 +2702,20 @@ namespace ProcessAffinityUI
 
             UpdateToolTip();
 
-            if (this._toolTip == null)
-            {
-                return;
-            }
-
-            // Ancrée sous la tuile sondée, et non au pointeur.
+            // La réponse se voit sur la tuile elle-même, par son cadre.
             //
-            // Le placement par défaut d'une infobulle est « Mouse », ce qui
-            // convient au survol mais pas ici : la souris est alors là où était
-            // l'entrée de menu. Mesuré, la réponse apparaissait à 708 px de la
-            // tuile qu'on venait d'interroger — ouverte, lisible, et ailleurs.
-            this._toolTip.PlacementTarget = this;
-            this._toolTip.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-
-            // Ne jamais toucher à StaysOpen : il vaut déjà true, et
-            // ToolTipService lève une NotSupportedException sur une infobulle
-            // posée via la propriété ToolTip dont StaysOpen serait false. Le
-            // remettre à false « pour la rendre au survol ordinaire » faisait
-            // donc lever six secondes après chaque sondage.
-            this._toolTip.IsOpen = true;
+            // C'est le seul canal qu'on maîtrise : une infobulle ouverte par
+            // programme dépend de ToolTipService, qui la place au pointeur et
+            // la referme au gré des mouvements de souris — la réponse se
+            // retrouvait mesurée à 708 px de la tuile interrogée, puis invisible
+            // en usage réel. Le cadre, lui, est à la tuile et ne bouge pas.
+            //
+            // Les trois pixels de bordure existent depuis toujours et n'ont
+            // jamais rien porté : BorderThickness vaut 3 dans le XAML et
+            // BorderBrush y est nul. Rien d'autre ne les peint, donc rien à
+            // restaurer qu'un pinceau nul.
+            this.BorderBrush = ColorPalette.GetBrush(
+                alive ? ColorPalette.ProbeAlive : ColorPalette.ProbeGone);
 
             if (this._probeTimer == null)
             {
@@ -2740,16 +2734,9 @@ namespace ProcessAffinityUI
         {
             this._probeTimer.Stop();
 
-            if (this._toolTip == null)
-            {
-                return;
-            }
-
-            this._toolTip.IsOpen = false;
-
-            // Rendue au survol ordinaire, qui la veut au pointeur. Placement se
-            // réécrit sans dommage, contrairement à StaysOpen.
-            this._toolTip.Placement = System.Windows.Controls.Primitives.PlacementMode.Mouse;
+            // Le cadre s'éteint ; la réponse, elle, reste dans l'infobulle,
+            // datée, jusqu'au sondage suivant.
+            this.BorderBrush = null;
         }
 
         private void ToolTipOpened(object sender, RoutedEventArgs e)

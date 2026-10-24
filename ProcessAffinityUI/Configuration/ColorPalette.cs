@@ -72,6 +72,8 @@ namespace ProcessAffinityUI.Configuration
         public const string NameBandNotModifiable = "nameBandNotModifiable";
         public const string NameBandRuled = "nameBandRuled";
         public const string NameBandFailedRule = "nameBandFailedRule";
+        public const string ProbeAlive = "probeAlive";
+        public const string ProbeGone = "probeGone";
 
         private static readonly object SyncRoot = new object();
 
@@ -203,6 +205,24 @@ namespace ProcessAffinityUI.Configuration
                 // détache deux fois mieux : 13,6:1 contre 6,3:1.
                 Default = Color.FromRgb(0x4D, 0x16, 0x12),
                 TextOverColor = TextOverColorEnum.Automatic,
+            },
+            new ColorRole
+            {
+                Key = ProbeAlive,
+                DisplayName = "Probe answer — alive",
+                Description = "Frame drawn around a tile for a few seconds after « Is alive ? », "
+                              + "when a process still carries this ID.",
+                Default = Color.FromRgb(0x1F, 0x9D, 0x3A),
+                TextOverColor = TextOverColorEnum.None,
+            },
+            new ColorRole
+            {
+                Key = ProbeGone,
+                DisplayName = "Probe answer — gone",
+                Description = "Frame drawn around a tile for a few seconds after « Is alive ? », "
+                              + "when no process carries this ID any more.",
+                Default = Color.FromRgb(0xC4, 0x30, 0x22),
+                TextOverColor = TextOverColorEnum.None,
             },
         };
 
@@ -591,6 +611,13 @@ namespace ProcessAffinityUI.Configuration
             new[] { NameBandResting, NameBandNotModifiable },
             new[] { NameBandRuled, NameBandFailedRule },
             new[] { NameBandResting, NameBandRuled },
+
+            // Les deux réponses du sondage ne se voient jamais ensemble, mais
+            // elles se succèdent au même endroit et portent des sens opposés :
+            // c'est le même besoin qu'un voisinage. Et c'est le couple le plus
+            // exposé de la palette — vert contre rouge est très exactement ce
+            // que ne distinguent pas les dichromaties les plus répandues.
+            new[] { ProbeAlive, ProbeGone },
         };
 
         /// <summary>
