@@ -49,11 +49,15 @@
                  taille imposée, un reste aurait repoussé le bandeau du bas de
                  la tuile — ce qu'il ne doit jamais quitter. -->
             <RowDefinition Height="*" />
-            <!-- Le bandeau gagne une ligne par cran d'agrandissement : le nom
-                 garde sa taille, mais une tuile triple lui offre trois lignes.
-                 La hauteur est posée par le code, qui la retire d'autant à la
-                 zone des courbes pour que la tuile occupe toujours n cellules
-                 sur n. -->
+            <!-- Vingt-sept pixels à tous les crans, et le code n'y touche pas :
+                 le bandeau ne grandit jamais verticalement. Il n'a qu'une ligne,
+                 et un nom qui déborde est tronqué par l'ellipse, l'infobulle
+                 donnant le libellé entier.
+
+                 La version 2.15.2 lui donnait une ligne de plus par cran pour
+                 loger le seul libellé de 71 caractères de la machine ; les 427
+                 autres tuiles payaient trois lignes pour un nom qui en demandait
+                 une. Les treize pixels par cran reviennent aux courbes. -->
             <RowDefinition x:Name="BandRow" Height="27" />
         </Grid.RowDefinitions>
 
@@ -136,32 +140,26 @@
              la largeur disponible, et un Label centré le couperait des deux côtés.
              L'ellipse conserve le début, qui identifie l'entrée ; l'infobulle donne
              le libellé complet. -->
-        <!-- TextWrapping et LineHeight explicites : le nombre de lignes doit se
-             calculer, pas s'observer. La hauteur de ligne fixée à 13 px rend la
-             hauteur du bandeau exactement prévisible, et c'est elle que le code
-             retranche à la zone des courbes.
+        <!-- Une seule ligne, tronquée par l'ellipse à toutes les échelles : le
+             retour à la ligne de la version 2.15.2 faisait payer à toutes les
+             tuiles agrandies la hauteur du libellé le plus long de la machine.
+             La largeur, elle, est posée par le code et jamais déduite du
+             texte — c'est ce qui avait élargi les tuiles aux noms longs, et le
+             piège vaut d'autant plus sans retour à la ligne : un TextBlock
+             annonce la largeur de son texte entier même lorsqu'il le tronque.
 
-             TextTrimming reste : il s'applique à la dernière ligne, pour les
-             libellés qui débordent même de trois lignes. La largeur, elle, est
-             posée par le code et jamais déduite du texte — c'est ce qui avait
-             élargi les tuiles aux noms longs. -->
-        <!-- C'est le Border qui porte la couleur du bandeau, et non le
-             TextBlock : celui-ci ne fait que la hauteur de son texte, si bien
-             qu'une rangée de 53 px sur une tuile triple laissait trente-trois
-             pixels de tuile nue sous un bandeau d'une ligne. Le Border, lui,
-             remplit la rangée, et le bandeau est donc bien au bas de la tuile
-             quelle que soit l'échelle.
-
-             Le texte y est centré verticalement : avec une à trois lignes
-             possibles selon l'échelle et la longueur du nom, le haut de la
-             rangée n'est pas un bon point d'ancrage.
+             C'est le Border qui porte la couleur du bandeau, et non le
+             TextBlock : celui-ci ne fait que la hauteur de son texte, treize
+             pixels, et laisserait sinon le reste de la rangée en fond de tuile.
+             Le Border remplit la rangée, et le bandeau est donc bien au bas de
+             la tuile à tous les crans ; le texte y est centré verticalement.
 
              Le clic droit est câblé sur les deux : MouseRightButtonDown est un
              événement routé direct et ne remonte donc pas du texte au Border.
              Sans le second, le menu ne serait pas sorti en cliquant sur le nom
              lui-même, qui est précisément là où l'on clique. -->
         <Border Grid.Row="1" Name="ProcessNameBand" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown">
-            <TextBlock Text="0000" Name="ProcessIDlabel" VerticalAlignment="Center" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" HorizontalAlignment="Stretch" TextAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="13" LineStackingStrategy="BlockLineHeight" FontSize="10" FontWeight="SemiBold" Opacity="1" />
+            <TextBlock Text="0000" Name="ProcessIDlabel" VerticalAlignment="Center" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" HorizontalAlignment="Stretch" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="10" FontWeight="SemiBold" Opacity="1" />
         </Border>
 
     </Grid>
