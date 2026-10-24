@@ -136,6 +136,22 @@ namespace ProcessAffinityUI
         /// <summary>Lu depuis le thread d'échantillonnage.</summary>
         private volatile bool _isToolTipOpen = false;
 
+        /// <summary>
+        /// Réponse du dernier « Is alive ? », datée, ou null si l'entrée n'a pas
+        /// été sondée. Elle vit dans l'infobulle et nulle part ailleurs : le
+        /// résultat d'un sondage ne s'écrit pas dans la place d'une mesure.
+        /// </summary>
+        private string _probeAnswer;
+
+        /// <summary>
+        /// Referme l'infobulle ouverte par un sondage. Une seule minuterie, et
+        /// elle ne tourne que pendant les secondes d'affichage.
+        /// </summary>
+        private System.Windows.Threading.DispatcherTimer _probeTimer;
+
+        /// <summary>Durée d'affichage de la réponse d'un sondage.</summary>
+        private const int ProbeAnswerSeconds = 6;
+
         /// <summary>Nombre d'étiquettes empilées formant la courbe (cf. XAML).</summary>
         private const int CPUUsageBarCount = 17;
 
@@ -1428,36 +1444,36 @@ namespace ProcessAffinityUI
             // pour toutes les autres commandes de ce menu.
             string displayScope = GetDisplayScopeSuffix();
 
+            // Le verbe se décide sur les cibles, et non sur la tuile cliquée :
+            // « Unpin » seulement quand toutes sont déjà épinglées.
             MenuItem pinItem = new MenuItem();
-            pinItem.Header = (DisplayPreferences.IsPinned(this._process) ? UnpinHeader : PinHeader)
+            pinItem.Header = (AllDisplayTargets(DisplayPreferences.IsPinned) ? UnpinHeader : PinHeader)
                              + displayScope;
 
             ((MenuItem)menu.Items[menu.Items.Add(pinItem)]).Click +=
                 new RoutedEventHandler(ProcessUserControlContextMenuClick);
 
             menu.Items.Add(CreateRememberItem(
-                DisplayPreferences.IsPinnedForExecutable(this._process),
+                AllDisplayTargets(DisplayPreferences.IsPinnedForExecutable),
                 RememberPinMenuItemClick,
                 "pinning"));
 
             menu.Items.Add(CreateTileSizeMenu());
 
             // Les deux valeurs chiffrées, et la couleur propre au processus.
-            bool showCpuValue;
-            bool showMemoryValue;
-
-            DisplayPreferences.GetValueDisplay(this._process, out showCpuValue, out showMemoryValue);
-
+            //
             // Ces deux entrées suivent le routage de sélection, comme les
             // autres commandes du menu : des tuiles cochées, et l'action porte
-            // sur elles.
+            // sur elles. La coche se lit donc sur les cibles — posée seulement
+            // si toutes affichent la valeur, de sorte qu'un clic sur un
+            // ensemble mêlé l'allume partout.
             string valueScope = GetDisplayScopeSuffix();
 
             menu.Items.Add(CreateValueItem(
-                CpuValueHeader + valueScope, showCpuValue, CpuValueMenuItemClick));
+                CpuValueHeader + valueScope, AllDisplayTargets(ShowsCpuValue), CpuValueMenuItemClick));
 
             menu.Items.Add(CreateValueItem(
-                MemoryValueHeader + valueScope, showMemoryValue, MemoryValueMenuItemClick));
+                MemoryValueHeader + valueScope, AllDisplayTargets(ShowsMemoryValue), MemoryValueMenuItemClick));
 
             menu.Items.Add(CreateBackgroundColorMenu());
         }
@@ -1501,6 +1517,26 @@ namespace ProcessAffinityUI
         /// chiffre affiché sur une tuile et pas sur sa voisine ne se
         /// comparerait pas.
         /// </summary>
+        private static bool ShowsCpuValue(Process process)
+        {
+            bool cpu;
+            bool memory;
+
+            DisplayPreferences.GetValueDisplay(process, out cpu, out memory);
+
+            return cpu;
+        }
+
+        private static bool ShowsMemoryValue(Process process)
+        {
+            bool cpu;
+            bool memory;
+
+            DisplayPreferences.GetValueDisplay(process, out cpu, out memory);
+
+            return memory;
+        }
+
         private static MenuItem CreateValueItem(string header, bool isChecked, RoutedEventHandler handler)
         {
             MenuItem item = new MenuItem();
@@ -1577,7 +1613,22 @@ namespace ProcessAffinityUI
             MenuItem root = new MenuItem();
             root.Header = BackgroundColorHeader + GetDisplayScopeSuffix();
 
-            if (!DisplayPreferences.CanRemember(this._process))
+            // Grisée seulement quand aucune cible ne peut porter de couleur.
+            // Le grisage se décidait sur la tuile cliquée : une sélection de
+            // trois dont la visée avait un chemin illisible refusait le geste
+            // pour les deux autres, et l'inverse était aussi vrai. Ce qui reste
+            // irréalisable est dit par le rapport d'application partielle.
+            List<Process> rememberable = new List<Process>();
+
+            foreach (Process target in GetDisplayTargets())
+            {
+                if (DisplayPreferences.CanRemember(target))
+                {
+                    rememberable.Add(target);
+                }
+            }
+
+            if (rememberable.Count == 0)
             {
                 root.IsEnabled = false;
                 root.ToolTip = DisplayPreferences.DescribeWhyNotRememberable(this._process);
@@ -1592,9 +1643,12 @@ namespace ProcessAffinityUI
 
             root.Items.Add(choose);
 
+            // Rien à ramener à la couleur générale si aucune cible n'a la
+            // sienne.
             MenuItem general = new MenuItem();
             general.Header = "Use the general colour";
-            general.IsEnabled = DisplayPreferences.GetBackgroundColor(this._process) != null;
+            general.IsEnabled = rememberable.Exists(
+                target => DisplayPreferences.GetBackgroundColor(target) != null);
             general.Click += ResetBackgroundColorClick;
 
             root.Items.Add(general);
@@ -1605,8 +1659,7 @@ namespace ProcessAffinityUI
         private void ChooseBackgroundColorClick(object sender, RoutedEventArgs e)
         {
             TileColorWindow window = new TileColorWindow(
-                "\"" + this._process.ProcessName + "\"",
-                DisplayPreferences.GetBackgroundColor(this._process));
+                DescribeColorTargets(), GetCommonBackgroundColor());
 
             window.Owner = Window.GetWindow(this);
 
@@ -1619,6 +1672,49 @@ namespace ProcessAffinityUI
 
             ApplyToDisplayTargets("Background colour", (Process target, out string error) =>
                 DisplayPreferences.TrySetBackgroundColor(target, chosen, out error));
+        }
+
+        /// <summary>
+        /// Ce que nomme le titre de la fenêtre de choix : les cibles, et non la
+        /// seule tuile cliquée. La couleur choisie leur sera appliquée à toutes,
+        /// et un titre qui ne nommait qu'une entrée laissait croire le contraire.
+        /// </summary>
+        private string DescribeColorTargets()
+        {
+            int count = GetDisplayTargets().Count;
+
+            return count > 1
+                ? count + " selected programs"
+                : "\"" + this._process.ProcessName + "\"";
+        }
+
+        /// <summary>
+        /// Couleur dont part le sélecteur : celle des cibles quand elles
+        /// s'accordent, et aucune sinon. Partir de celle de la tuile visée
+        /// aurait fait d'un réglage particulier le point de départ d'un geste
+        /// collectif.
+        /// </summary>
+        private Color? GetCommonBackgroundColor()
+        {
+            Color? common = null;
+            bool first = true;
+
+            foreach (Process target in GetDisplayTargets())
+            {
+                Color? current = DisplayPreferences.GetBackgroundColor(target);
+
+                if (first)
+                {
+                    common = current;
+                    first = false;
+                }
+                else if (current != common)
+                {
+                    return null;
+                }
+            }
+
+            return common;
         }
 
         private void ResetBackgroundColorClick(object sender, RoutedEventArgs e)
@@ -1701,19 +1797,86 @@ namespace ProcessAffinityUI
             return count < 1 ? 1 : count;
         }
 
+        /// <summary>
+        /// Replie une lecture faite sur chaque cible en un seul état : vrai si
+        /// toutes l'ont, faux si aucune, et null si elles ne sont pas d'accord.
+        ///
+        /// C'est le mécanisme unique derrière les quatre entrées d'affichage.
+        /// Leur état se lisait sur la seule tuile cliquée, alors que leur action
+        /// porte sur toute la sélection : le menu annonçait donc un verbe choisi
+        /// par une tuile et appliqué à trois, et la coche de taille montrait
+        /// l'échelle de la tuile visée et non celle des cibles.
+        ///
+        /// Le null se rend par l'absence de marque, et non par une marque
+        /// particulière : un MenuItem n'a que sa coche, et la montrer à demi
+        /// affirmerait un état que les cibles n'ont pas.
+        /// </summary>
+        private bool? FoldDisplayTargets(Func<Process, bool> read)
+        {
+            bool any = false;
+            bool all = true;
+            bool seen = false;
+
+            foreach (Process target in GetDisplayTargets())
+            {
+                seen = true;
+
+                if (read(target))
+                {
+                    any = true;
+                }
+                else
+                {
+                    all = false;
+                }
+            }
+
+            if (!seen)
+            {
+                return false;
+            }
+
+            return all ? true : (any ? (bool?)null : false);
+        }
+
+        /// <summary>
+        /// Vrai quand toutes les cibles portent déjà l'état : c'est le seul cas
+        /// où un verbe de bascule doit annoncer le retour.
+        ///
+        /// Règle de convergence : hors de ce cas — aucune, ou seulement
+        /// quelques-unes —, le verbe affiché amène l'ensemble dans le même
+        /// état, et il est donc tenu pour chaque cible. C'est ce qui remplace le
+        /// verbe déduit de la tuile cliquée, qui dépendait de l'endroit du clic
+        /// et non de ce sur quoi il allait porter.
+        ///
+        /// Le choix majoritaire a été écarté : sur deux cibles épinglées contre
+        /// une, il aurait défait ce que la majorité avait déjà, en vertu d'une
+        /// arithmétique invisible, et il reste arbitraire à égalité.
+        /// </summary>
+        private bool AllDisplayTargets(Func<Process, bool> read)
+        {
+            return FoldDisplayTargets(read) == true;
+        }
+
         private MenuItem CreateTileSizeMenu()
         {
             MenuItem root = new MenuItem();
             root.Header = TileSizeHeader + GetDisplayScopeSuffix();
 
-            int current = DisplayPreferences.GetScale(this._process);
-
+            // Une taille n'est cochée que si toutes les cibles l'ont. Quand
+            // elles diffèrent, aucune ne l'est : l'absence de marque est
+            // l'état indéterminé, un MenuItem n'en ayant pas d'autre à offrir.
+            // Les feuilles portent une valeur explicite, si bien que l'action
+            // reste sans ambiguïté — seule la coche mentait.
             for (int scale = 1; scale <= DisplayPreferences.MaximumScale; scale++)
             {
+                int wanted = scale;
+
                 MenuItem item = new MenuItem();
                 item.Header = DescribeScale(scale);
                 item.IsCheckable = true;
-                item.IsChecked = scale == current;
+                item.IsChecked = AllDisplayTargets(
+                    target => DisplayPreferences.GetScale(target) == wanted);
                 item.Tag = scale;
                 item.Click += TileSizeMenuItemClick;
 
@@ -1723,7 +1886,7 @@ namespace ProcessAffinityUI
             root.Items.Add(new Separator());
 
             root.Items.Add(CreateRememberItem(
-                DisplayPreferences.GetScaleForExecutable(this._process) > 1,
+                AllDisplayTargets(target => DisplayPreferences.GetScaleForExecutable(target) > 1),
                 RememberScaleMenuItemClick,
                 "size"));
 
@@ -2077,15 +2240,7 @@ namespace ProcessAffinityUI
             switch (header)
             {
                 case "Is alive ?":
-                    switch (this._process.IsAlive())
-                    {
-                        case false:
-                            this.Opacity = 10;
-                            break;
-                        case true:
-                            SetCPUUsageLabel(100);
-                            break;
-                    }
+                    Probe();
                     break;
                 case KillHeader:
                     KillProcesses(targets);
@@ -2107,9 +2262,11 @@ namespace ProcessAffinityUI
         /// </summary>
         private void TogglePin()
         {
-            // Le verbe est décidé par la tuile visée — c'est elle qu'on a
-            // désignée —, puis appliqué à toute la sélection.
-            bool pinned = DisplayPreferences.IsPinned(this._process);
+            // Le verbe est celui qu'annonçait le menu : « Unpin » seulement
+            // quand toutes les cibles sont épinglées, et donc « Pin » dès
+            // qu'il en reste une qui ne l'est pas. Le décider sur la tuile
+            // visée le faisait dépendre de l'endroit du clic et non des cibles.
+            bool pinned = AllDisplayTargets(DisplayPreferences.IsPinned);
 
             foreach (Process target in GetDisplayTargets())
             {
@@ -2499,6 +2656,94 @@ namespace ProcessAffinityUI
             UpdateToolTip();
         }
 
+        /// <summary>
+        /// « Is alive ? ». Un sondage ponctuel sur l'entrée désignée, et non un
+        /// réglage : il ne suit donc pas la sélection, parce qu'on interroge une
+        /// entrée précise parce qu'on doute d'elle.
+        ///
+        /// Son résultat va dans l'infobulle, et nulle part ailleurs. Le code
+        /// d'origine appelait <c>SetCPUUsageLabel(100)</c> sur « vivant », ce
+        /// qui ne se contentait pas d'écrire une valeur : cette méthode décale
+        /// tout l'historique — hauteurs, pinceaux et mémoire —, écrit une barre
+        /// à pleine hauteur et duplique la mémoire courante. Chaque clic forgeait
+        /// donc un échantillon dans une série mesurée et faisait perdre un relevé
+        /// réel à la courbe. Sur « mort », il posait <c>Opacity = 10</c>, que WPF
+        /// ramène à 1, qui est la valeur par défaut : rien n'était visible.
+        /// </summary>
+        private void Probe()
+        {
+            Process target = this._process;
+
+            if (target == null)
+            {
+                return;
+            }
+
+            // IsAlive interroge WMI : jamais sur le thread d'IHM.
+            Task.Factory.StartNew(() =>
+            {
+                bool alive = target.IsAlive();
+
+                if (this.Dispatcher.HasShutdownStarted || this.Dispatcher.HasShutdownFinished)
+                {
+                    return;
+                }
+
+                this.Dispatcher.BeginInvoke(new Action(() => ShowProbeAnswer(alive)));
+            });
+        }
+
+        private void ShowProbeAnswer(bool alive)
+        {
+            this._probeAnswer = "Probed at " + DateTime.Now.ToString("HH:mm:ss") + ": "
+                                + (alive
+                                    ? "a process still carries this ID."
+                                    : "no process carries this ID any more.");
+
+            UpdateToolTip();
+
+            if (this._toolTip == null)
+            {
+                return;
+            }
+
+            // StaysOpen : une infobulle ouverte par programme, ToolTipService la
+            // referme au premier mouvement de souris hors de la tuile — et la
+            // souris est alors là où était l'entrée de menu, pas sur la tuile.
+            // Le sondage la tient donc ouverte lui-même, et la referme sur
+            // minuterie : la réponse doit se voir sans survol.
+            this._toolTip.StaysOpen = true;
+            this._toolTip.IsOpen = true;
+
+            if (this._probeTimer == null)
+            {
+                this._probeTimer = new System.Windows.Threading.DispatcherTimer();
+                this._probeTimer.Interval = TimeSpan.FromSeconds(ProbeAnswerSeconds);
+                this._probeTimer.Tick += ProbeTimerTick;
+            }
+
+            // Un second sondage repart de zéro plutôt que d'hériter du reste du
+            // premier délai.
+            this._probeTimer.Stop();
+            this._probeTimer.Start();
+        }
+
+        private void ProbeTimerTick(object sender, EventArgs e)
+        {
+            this._probeTimer.Stop();
+
+            if (this._toolTip == null)
+            {
+                return;
+            }
+
+            this._toolTip.IsOpen = false;
+
+            // Rendue au survol ordinaire : c'est ToolTipService qui la gouverne
+            // de nouveau. La réponse, elle, reste dans son contenu.
+            this._toolTip.StaysOpen = false;
+        }
+
         private void ToolTipOpened(object sender, RoutedEventArgs e)
         {
             this._isToolTipOpen = true;
@@ -2562,6 +2807,15 @@ namespace ProcessAffinityUI
                         sharedServiceNames.Count + " services in this process:\r\n" +
                         string.Join(", ", sharedServiceNames) + "\r\n" +
                         "Any affinity or priority change affects them all.";
+                }
+
+                // La réponse du dernier sondage, datée, et en dernier pour être
+                // la première chose lue. C'est la date qui l'empêche de se
+                // faire passer pour une mesure courante, comme pour la ligne
+                // d'âge du relevé ci-dessus.
+                if (this._probeAnswer != null)
+                {
+                    text = text + "\r\n\r\n" + this._probeAnswer;
                 }
 
                 this._toolTipTextBlock.Text = text;

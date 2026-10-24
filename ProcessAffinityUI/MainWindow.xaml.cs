@@ -983,9 +983,13 @@ namespace ProcessAffinityUI
             menuItem.Header = "Unselect all processes";
             ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
 
-            menuItem = new MenuItem();
-            menuItem.Header = "Is alive all processes";
-            ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
+            // « Is alive all processes » a été retirée. Elle exécutait IsAlive()
+            // sur tous les processus en parallèle et jetait tous les résultats :
+            // plus de quatre cents requêtes WMI, aucun affichage, aucun journal.
+            // Et un sondage global n'apprendrait rien de plus que le diff
+            // périodique, qui retire déjà les tuiles dont le processus a disparu.
+            // Le sondage d'une tuile, lui, reste : on interroge une entrée
+            // précise parce qu'on doute d'elle.
 
             // La configuration ne s'offre que sur la sélection, jamais sur tout le
             // panneau : « enregistrer » sur trois cents processus écrirait trois
@@ -1080,9 +1084,6 @@ namespace ProcessAffinityUI
                     break;
                 case "Unselect all processes":
                     UnselectProcesses();
-                    break;
-                case "Is alive all processes":
-                    IsAliveProcesses();
                     break;
 
             }
@@ -1229,19 +1230,6 @@ namespace ProcessAffinityUI
             // Une seule implémentation : ClearSelection décoche aussi les entrées
             // qui n'ont pas de tuile au moment du geste.
             ClearSelection();
-        }
-
-        private void IsAliveProcesses()
-        {
-            Task.Factory.StartNew(() => {
-
-                // Copie sous verrou : le diff mute désormais la liste depuis le
-                // thread d'échantillonnage, et énumérer l'original lèverait.
-                Parallel.ForEach(_processes.Snapshot(), (process) => {
-                    process.IsAlive();
-                });
-
-            }, TaskCreationOptions.LongRunning);
         }
 
         private void Processes_ProcessEventArrived(object sender, ProcessEventArgs e)
