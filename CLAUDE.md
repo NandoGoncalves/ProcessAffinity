@@ -157,6 +157,18 @@ processeur logique dans l'IHM.
   ne pointe pas dans ce répertoire. Sauvegarder puis restaurer le fichier réel
   ne vaut pas : cela protège tant que personne n'oublie, et laisse le dossier
   vide pendant l'essai.
+- **Rupture de compatibilité sur une préférence d'affichage** — épinglage,
+  taille de tuile, couleur : elle ne fait **pas** l'objet d'un avertissement à
+  l'utilisateur. Le coût de la perte est inférieur au coût de l'attention
+  demandée : on lui fait perdre un réglage qu'il repose en deux clics, là où un
+  message le détourne de ce qu'il faisait pour lui apprendre une nouvelle qu'il
+  ne peut pas exploiter. La préférence perdue est simplement ignorée, clé
+  inconnue comprise.
+  Cette règle **ne vaut pas pour les règles de configuration**, dont la perte se
+  signale : une affinité ou une priorité qui cesse d'être appliquée change le
+  comportement de la machine, et l'utilisateur doit pouvoir le rattacher à la
+  mise à jour plutôt que de le découvrir par un ralentissement.
+
 - Ne pas élargir le périmètre d'une étape sans validation explicite.
 - La description de chaque PR énonce la demande d'origine avant la liste des
   modifications. Toute modification non demandée explicitement y est signalée

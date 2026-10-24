@@ -62,7 +62,7 @@
                          Sans libellé au-dessus : deux cases nommées « CPU » et
                          « RAM » à côté de « Show services » se comprennent seules. -->
                     <CheckBox Content="CPU" Height="20" HorizontalAlignment="Left" Margin="112,17,0,0" Name="ShowCpuBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="True" ToolTip="Draw the CPU history on each tile" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
-                    <CheckBox Content="RAM" Height="20" HorizontalAlignment="Left" Margin="162,17,0,0" Name="ShowMemoryBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="False" ToolTip="Draw the memory history behind the CPU bars, and the gauge on the left edge" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
+                    <CheckBox Content="RAM" Height="20" HorizontalAlignment="Left" Margin="162,17,0,0" Name="ShowMemoryBarsCheckBox" VerticalAlignment="Top" Width="48" FontSize="10" IsChecked="True" ToolTip="Draw the memory history behind the CPU bars, and the gauge on the left edge" Checked="BarsCheckBox_CheckedChanged" Unchecked="BarsCheckBox_CheckedChanged" />
                     <!-- Champ de recherche à la manière du Gestionnaire des tâches
                          de Windows 11 : cadre arrondi, loupe à gauche, texte
                          indicatif à l'intérieur plutôt qu'un libellé au-dessus, et
@@ -153,7 +153,11 @@
             </Border>
             <Border Background="White" BorderBrush="Black" BorderThickness="1"  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" >
                 <ScrollViewer x:Name="processScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                    <WrapPanel Background="White"  Name="processWrapPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"  />
+                    <!-- Le panneau des tuiles est cree en code et non ici : le
+                         referencer en XAML le differerait a la seconde passe du
+                         compilateur de balisage, et le code-behind qui utilise
+                         son champ ne compilerait plus a la premiere. Voir
+                         MainWindow.xaml.cs. -->
                 </ScrollViewer>
             </Border>
 

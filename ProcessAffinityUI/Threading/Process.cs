@@ -519,6 +519,7 @@ namespace ProcessAffinityUI.Threading
             this._lastTotalProcessorTime = totalProcessorTime;
             this._lastCPUSampleTimestamp = timestamp;
             this._lastCreateTime = createTime;
+            this._lastSampleUtc = DateTime.UtcNow;
             this._hasCPUSample = true;
         }
 
@@ -700,6 +701,31 @@ namespace ProcessAffinityUI.Threading
         /// qui distingue un PID réutilisé de celui qu'il portait avant.
         /// </summary>
         public long CreateTime { get { return this._lastCreateTime; } }
+
+        /// <summary>
+        /// Horloge murale du dernier relevé abouti. Murale et non QPC : c'est
+        /// le même raisonnement que pour le détecteur de trou du lot 6a — un
+        /// Stopwatch ne s'écoule pas pendant une veille, et une valeur vieille
+        /// de huit heures passerait pour fraîche.
+        /// </summary>
+        private DateTime _lastSampleUtc = DateTime.MinValue;
+
+        /// <summary>
+        /// Âge du dernier relevé abouti, en secondes. Zéro quand aucun relevé
+        /// n'a encore eu lieu : une entrée qui vient d'apparaître n'est pas
+        /// périmée, elle est neuve.
+        /// </summary>
+        public double SampleAgeSeconds
+        {
+            get
+            {
+                DateTime last = this._lastSampleUtc;
+
+                return last == DateTime.MinValue
+                    ? 0d
+                    : (DateTime.UtcNow - last).TotalSeconds;
+            }
+        }
 
         public bool IsProcessMonitored { get; private set; }
 

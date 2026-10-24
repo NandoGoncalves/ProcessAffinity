@@ -57,6 +57,25 @@
                 <CheckBox Name="ManageCpuSetsCheckBox" Content="This rule sets CPU Sets" Margin="0,6,0,0"
                           Checked="ManageCpuSetsCheckBox_Changed" Unchecked="ManageCpuSetsCheckBox_Changed" />
                 <WrapPanel Name="CpuSetsPanel" Margin="0,6,0,0" />
+
+                <TextBlock Text="Display" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="Kept in settings.json, not in the rules file: a display preference has no business raising the format version of the rules."
+                           Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Text="Tile size" VerticalAlignment="Center" Width="70" />
+                    <ComboBox Name="TileSizeComboBox" Width="130" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Text="Background" VerticalAlignment="Center" Width="70" />
+                    <Border Name="BackgroundSwatchBorder" Width="40" Height="22" CornerRadius="2"
+                            BorderBrush="#FF999999" BorderThickness="1" VerticalAlignment="Center" />
+                    <Button Name="ChooseBackgroundButton" Content="Choose…" Padding="10,3" Margin="8,0,0,0"
+                            Click="ChooseBackgroundButton_Click" />
+                    <Button Name="GeneralBackgroundButton" Content="General colour" Padding="10,3" Margin="6,0,0,0"
+                            Click="GeneralBackgroundButton_Click" />
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
 

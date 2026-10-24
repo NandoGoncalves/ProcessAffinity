@@ -46,9 +46,33 @@ namespace ProcessAffinityUI
         private const string PinHeader = "Pin to front";
         private const string UnpinHeader = "Unpin from front";
         private const string TileSizeHeader = "Tile size";
+        private const string CpuValueHeader = "CPU value on tile";
+        private const string MemoryValueHeader = "RAM value on tile";
+        private const string BackgroundColorHeader = "Background colour";
 
-        /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
+        /// <summary>Hauteur de l.emplacement d.une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
+
+        /// <summary>
+        /// Largeur de la zone des courbes, en pixels (cf. CurvesHost dans le
+        /// XAML). C.est elle qui fixe la largeur de la tuile : rien d.autre ne
+        /// doit peser sur la mesure, sans quoi un nom long élargit la tuile.
+        /// </summary>
+        private const double CurvesWidth = 102d;
+
+        /// <summary>Bordure de la tuile, 3 px de chaque côté (cf. XAML).</summary>
+        private const double TileBorder = 6d;
+
+        /// <summary>Hauteur du bandeau de nom (seconde rangée du XAML).</summary>
+        private const double BandHeight = 27d;
+
+        /// <summary>
+        /// Taille d'une tuile à l'échelle normale, et donc de la cellule du
+        /// panneau. Une tuile agrandie occupe exactement n fois cette taille :
+        /// c'est ce qui lui fait remplir son bloc sans laisser de trou.
+        /// </summary>
+        private const double NormalTileWidth = CurvesWidth + TileBorder;
+        private const double NormalTileHeight = CPUUsageBarHeight + BandHeight + TileBorder;
 
         /// <summary>
         /// Fonds du bandeau de nom. Les quatre teintes viennent de la palette :
@@ -116,9 +140,22 @@ namespace ProcessAffinityUI
         /// L'historique continue d'être décalé en mémoire dans les deux cas : une
         /// courbe rallumée doit repartir continue, et non d'un trou.
         /// </summary>
+        /// <summary>
+        /// Âge au-delà duquel une valeur cesse d'être présentée comme courante.
+        /// Trois relevés : un relevé manqué n'a rien d'anormal, trois veulent
+        /// dire que plus rien n'arrive pour cette entrée.
+        /// </summary>
+        private const double StaleValueSeconds = 3d;
+
+        /// <summary>Teinte d'une valeur qui n'est plus fraîche.</summary>
+        private static readonly Brush StaleValueBrush =
+            ColorPalette.Freeze(Color.FromRgb(0x8A, 0x8A, 0x8A));
+
+        private static readonly Brush FreshValueBrush = ColorPalette.Freeze(Colors.Black);
+
         public static bool AreCpuBarsShown { get; set; } = true;
 
-        public static bool AreMemoryBarsShown { get; set; } = false;
+        public static bool AreMemoryBarsShown { get; set; } = true;
 
         /// <summary>
         /// Historique glissant, du plus récent au plus ancien. Il vit ici et non
@@ -228,7 +265,7 @@ namespace ProcessAffinityUI
             // Les teintes réglables sont posées dès la construction : une tuile
             // créée après un changement de palette doit naître à la bonne
             // couleur, sans attendre un repeint général.
-            this.Background = ColorPalette.GetBrush(ColorPalette.TileBackground);
+            this.Background = GetTileBackgroundBrush();
             this.MemoryGaugeFill.Fill = ColorPalette.GetBrush(ColorPalette.MemoryGauge);
 
             ApplyScale();
@@ -318,28 +355,204 @@ namespace ProcessAffinityUI
         }
 
         /// <summary>
+        /// Fond de la tuile : la couleur propre au processus si elle existe,
+        /// sinon celle de la palette générale.
+        ///
+        /// Les pinceaux propres à un processus sont mis en cache par couleur et
+        /// gelés, comme ceux de la palette : deux tuiles du même programme
+        /// partagent le même objet, et une couleur par processus ne fait pas un
+        /// pinceau par tuile.
+        /// </summary>
+        /// <summary>
+        /// Reprend le fond de la tuile : la couleur propre au processus si elle
+        /// existe, sinon celle de la palette.
+        ///
+        /// Appelée après un changement de préférence d'affichage. Sans elle, une
+        /// couleur posée sur un processus ne se voyait qu'au prochain
+        /// rechargement : le réordonnancement et l'échelle étaient repris, le
+        /// fond non.
+        /// </summary>
+        public void ApplyTileBackground()
+        {
+            Brush wanted = GetTileBackgroundBrush();
+
+            if (!ReferenceEquals(this.Background, wanted))
+            {
+                this.Background = wanted;
+            }
+        }
+
+        private Brush GetTileBackgroundBrush()
+        {
+            Color? own = DisplayPreferences.GetBackgroundColor(this._process);
+
+            if (own == null)
+            {
+                return ColorPalette.GetBrush(ColorPalette.TileBackground);
+            }
+
+            lock (OwnBackgroundBrushes)
+            {
+                Brush brush;
+
+                if (!OwnBackgroundBrushes.TryGetValue(own.Value, out brush))
+                {
+                    brush = ColorPalette.Freeze(own.Value);
+                    OwnBackgroundBrushes[own.Value] = brush;
+                }
+
+                return brush;
+            }
+        }
+
+        private static readonly Dictionary<Color, Brush> OwnBackgroundBrushes =
+            new Dictionary<Color, Brush>();
+
+        /// <summary>
+        /// Valeur chiffrée, et son âge.
+        ///
+        /// Tout se fait ici, dans l'opération déjà postée par le rendu : aucun
+        /// aller-retour supplémentaire sur le dispatcher, ce qui est la
+        /// contrainte de l'étape 2b — une opération par tuile et par relevé.
+        ///
+        /// Une valeur qui n'est plus fraîche n'est pas effacée mais grisée :
+        /// effacer perdrait une information utile, puisqu'on veut justement
+        /// savoir qu'un processus était à 96 % juste avant de cesser de
+        /// répondre. Le gris dit « ceci n'est plus un relevé », et l'infobulle
+        /// dit depuis quand.
+        /// </summary>
+        private void RefreshValueLabel()
+        {
+            bool showCpuValue;
+            bool showMemoryValue;
+
+            DisplayPreferences.GetValueDisplay(this._process, out showCpuValue, out showMemoryValue);
+
+            if (!showCpuValue && !showMemoryValue)
+            {
+                if (this.CPUUsageValueTextBlock.Visibility != Visibility.Collapsed)
+                {
+                    this.CPUUsageValueTextBlock.Visibility = Visibility.Collapsed;
+                }
+
+                return;
+            }
+
+            if (this.CPUUsageValueTextBlock.Visibility != Visibility.Visible)
+            {
+                this.CPUUsageValueTextBlock.Visibility = Visibility.Visible;
+            }
+
+            string text;
+
+            if (showCpuValue && showMemoryValue)
+            {
+                text = DescribeMemory(this._memoryBytes) + " - " + this._displayedValue + "%";
+            }
+            else if (showMemoryValue)
+            {
+                text = DescribeMemory(this._memoryBytes);
+            }
+            else
+            {
+                text = this._displayedValue + "%";
+            }
+
+            if (this.CPUUsageValueTextBlock.Text != text)
+            {
+                this.CPUUsageValueTextBlock.Text = text;
+            }
+
+            Brush wanted = IsSampleStale() ? StaleValueBrush : FreshValueBrush;
+
+            if (!ReferenceEquals(this.CPUUsageValueTextBlock.Foreground, wanted))
+            {
+                this.CPUUsageValueTextBlock.Foreground = wanted;
+            }
+        }
+
+        /// <summary>
+        /// Vrai quand le dernier relevé abouti de cette entrée a plus de
+        /// <see cref="StaleValueSeconds"/>. Une simple comparaison, faite dans
+        /// le rendu déjà posté.
+        /// </summary>
+        /// <summary>Âge lisible : secondes, minutes, puis heures.</summary>
+        private static string DescribeAge(double seconds)
+        {
+            if (seconds < 60d)
+            {
+                return ((int)seconds) + " s";
+            }
+
+            if (seconds < 3600d)
+            {
+                return ((int)(seconds / 60d)) + " min";
+            }
+
+            return (seconds / 3600d).ToString("F1") + " h";
+        }
+
+        private bool IsSampleStale()
+        {
+            double age = this._process == null ? 0d : this._process.SampleAgeSeconds;
+
+            return age > StaleValueSeconds;
+        }
+
+        /// <summary>
         /// Transformations d'échelle, gelées et partagées. Une par facteur, et
         /// non une par tuile : le même objet sert à toutes les tuiles d'un même
         /// agrandissement, comme les pinceaux de barre.
         /// </summary>
         private static readonly Transform[] ScaleTransforms = BuildScaleTransforms();
 
+        /// <summary>
+        /// Transformations d'échelle des courbes, gelées et partagées.
+        ///
+        /// Le facteur horizontal est l'entier demandé : les barres font cinq
+        /// pixels de large avec un pas de cinq, et un facteur fractionnaire les
+        /// ferait tomber entre deux pixels, donc flouter leurs bords.
+        ///
+        /// Le facteur vertical, lui, remplit ce qui reste de la hauteur du
+        /// bloc une fois le bandeau et les bordures retirés. Il n'est pas
+        /// entier — 2,59 au double, 4,18 au triple — et cela ne coûte rien :
+        /// une hauteur de barre encode un pourcentage, elle ne tombe déjà sur
+        /// aucune grille. Ce que cela gagne, c'est la bande vide sous une tuile
+        /// agrandie, qui laissait un trou dans le panneau.
+        /// </summary>
         private static Transform[] BuildScaleTransforms()
         {
             Transform[] transforms = new Transform[DisplayPreferences.MaximumScale + 1];
 
             transforms[0] = Transform.Identity;
-            transforms[1] = Transform.Identity;
 
-            for (int scale = 2; scale <= DisplayPreferences.MaximumScale; scale++)
+            for (int scale = 1; scale <= DisplayPreferences.MaximumScale; scale++)
             {
-                ScaleTransform transform = new ScaleTransform(scale, scale);
+                double verticalFactor =
+                    ((NormalTileHeight * scale) - BandHeight - TileBorder) / CPUUsageBarHeight;
+
+                // À l'échelle normale le calcul rend exactement 1 : on garde
+                // l'identité, qui n'est pas une transformation à appliquer.
+                if (scale == 1)
+                {
+                    transforms[1] = Transform.Identity;
+                    continue;
+                }
+
+                ScaleTransform transform = new ScaleTransform(scale, verticalFactor);
                 transform.Freeze();
 
                 transforms[scale] = transform;
             }
 
             return transforms;
+        }
+
+        private static Transform GetCurvesTransform(int scale)
+        {
+            return scale < 1 || scale >= ScaleTransforms.Length
+                ? Transform.Identity
+                : ScaleTransforms[scale];
         }
 
         /// <summary>
@@ -365,14 +578,59 @@ namespace ProcessAffinityUI
                 scale = 1;
             }
 
-            Transform wanted = ScaleTransforms[scale];
+            // La largeur de la tuile doit venir des seules courbes.
+            //
+            // Le bandeau de nom est étiré et tronqué par une ellipse, mais un
+            // TextBlock annonce malgré tout la largeur de son texte entier :
+            // « Dell.TechHub.Instrumentation.SubAgent.exe » faisait une tuile
+            // deux fois plus large que ses voisines. Il portait auparavant une
+            // largeur fixe de 96 px, qui l'empêchait de peser sur la mesure ;
+            // la structure en deux rangées la lui avait retirée.
+            //
+            // On la lui rend, calculée depuis l'échelle. La valeur chiffrée est
+            // plafonnée de même : elle est courte, mais rien ne garantit qu'un
+            // « 1023,9 MB - 100% » reste sous la largeur des courbes.
+            // La tuile occupe exactement n cellules sur n : c'est ce qui lui
+            // fait remplir son bloc dans le panneau, sans la bande vide qui
+            // restait dessous.
+            double tileWidth = NormalTileWidth * scale;
+            double tileHeight = NormalTileHeight * scale;
 
-            // Réécrire la même transformation invaliderait la mise en page de
-            // la tuile pour rien, et cette méthode est appelée sur toutes les
-            // tuiles à chaque changement de préférence.
-            if (!ReferenceEquals(this.LayoutTransform, wanted))
+            if (this.Width != tileWidth)
             {
-                this.LayoutTransform = wanted;
+                this.Width = tileWidth;
+            }
+
+            if (this.Height != tileHeight)
+            {
+                this.Height = tileHeight;
+            }
+
+            double innerWidth = tileWidth - TileBorder;
+
+            if (this.ProcessIDlabel.Width != innerWidth)
+            {
+                this.ProcessIDlabel.Width = innerWidth;
+            }
+
+            if (this.CPUUsageValueTextBlock.MaxWidth != innerWidth)
+            {
+                this.CPUUsageValueTextBlock.MaxWidth = innerWidth;
+            }
+
+            Transform wanted = GetCurvesTransform(scale);
+
+            // Sur CurvesHost et non sur la tuile : seules les courbes — barres
+            // de CPU, barres de mémoire et jauge — changent de taille. L'icône,
+            // le nom, son bandeau et la valeur chiffrée gardent la leur,
+            // puisqu'ils vivent hors de ce conteneur.
+            //
+            // Réécrire la même transformation invaliderait la mise en page pour
+            // rien, et cette méthode passe sur toutes les tuiles à chaque
+            // changement de préférence.
+            if (!ReferenceEquals(this.CurvesHost.LayoutTransform, wanted))
+            {
+                this.CurvesHost.LayoutTransform = wanted;
             }
         }
 
@@ -384,7 +642,7 @@ namespace ProcessAffinityUI
         /// </summary>
         public void ApplyPalette()
         {
-            this.Background = ColorPalette.GetBrush(ColorPalette.TileBackground);
+            this.Background = GetTileBackgroundBrush();
             this.MemoryGaugeFill.Fill = ColorPalette.GetBrush(ColorPalette.MemoryGauge);
 
             SetModifiableMarker(this._process);
@@ -842,7 +1100,8 @@ namespace ProcessAffinityUI
                 this.MemoryGaugeFill.Height = showMemory
                     ? GetMemoryBarHeight(this._memoryBytesHistory[0], memoryScale)
                     : 0d;
-                this.CPUUsageValueTextBlock.Text = this._displayedValue;
+                RefreshValueLabel();
+
                 this.ProcessNameLabelBackground = GetProcessNameBackgroundBrush();
 
                 // Infobulle affichée : on la tient à jour. Test hors du rendu des
@@ -1159,6 +1418,196 @@ namespace ProcessAffinityUI
                 "pinning"));
 
             menu.Items.Add(CreateTileSizeMenu());
+
+            // Les deux valeurs chiffrées, et la couleur propre au processus.
+            bool showCpuValue;
+            bool showMemoryValue;
+
+            DisplayPreferences.GetValueDisplay(this._process, out showCpuValue, out showMemoryValue);
+
+            // Ces deux entrées suivent le routage de sélection, comme les
+            // autres commandes du menu : des tuiles cochées, et l'action porte
+            // sur elles.
+            string valueScope = GetDisplayScopeSuffix();
+
+            menu.Items.Add(CreateValueItem(
+                CpuValueHeader + valueScope, showCpuValue, CpuValueMenuItemClick));
+
+            menu.Items.Add(CreateValueItem(
+                MemoryValueHeader + valueScope, showMemoryValue, MemoryValueMenuItemClick));
+
+            menu.Items.Add(CreateBackgroundColorMenu());
+        }
+
+        /// <summary>
+        /// Portée annoncée dans l'en-tête des réglages d'affichage qui suivent
+        /// la sélection.
+        /// </summary>
+        private string GetDisplayScopeSuffix()
+        {
+            int count = GetDisplayTargets().Count;
+
+            return count > 1 ? " (" + count + " selected)" : string.Empty;
+        }
+
+        /// <summary>
+        /// Cibles d'un réglage d'affichage : la sélection si elle n'est pas
+        /// vide, sinon la seule tuile visée.
+        ///
+        /// Processus et services confondus, contrairement aux commandes
+        /// d'affinité ou de service : afficher une valeur ne dépend ni du genre
+        /// de l'entrée ni des droits.
+        /// </summary>
+        private List<Process> GetDisplayTargets()
+        {
+            List<Process> targets = GetSelectedProcesses();
+
+            targets.AddRange(GetSelectedServices());
+
+            if (targets.Count == 0 && this._process != null)
+            {
+                targets.Add(this._process);
+            }
+
+            return targets;
+        }
+
+        /// <summary>
+        /// Une des deux valeurs chiffrées. Ce réglage vaut pour toutes les
+        /// tuiles, comme les cases « CPU » et « RAM » de la barre du haut : un
+        /// chiffre affiché sur une tuile et pas sur sa voisine ne se
+        /// comparerait pas.
+        /// </summary>
+        private static MenuItem CreateValueItem(string header, bool isChecked, RoutedEventHandler handler)
+        {
+            MenuItem item = new MenuItem();
+            item.Header = header;
+            item.IsCheckable = true;
+            item.IsChecked = isChecked;
+            item.Click += handler;
+
+            return item;
+        }
+
+        private void CpuValueMenuItemClick(object sender, RoutedEventArgs e)
+        {
+            ApplyValueDisplay(sender as MenuItem, true);
+        }
+
+        private void MemoryValueMenuItemClick(object sender, RoutedEventArgs e)
+        {
+            ApplyValueDisplay(sender as MenuItem, false);
+        }
+
+        /// <summary>
+        /// Pose l'une des deux valeurs sur chaque cible, en gardant l'autre
+        /// telle qu'elle est pour cette cible : cocher « CPU » ne doit pas
+        /// éteindre la RAM d'une tuile qui l'affichait.
+        ///
+        /// Réglage d'instance : il ne vaut que pour cette instance et disparaît
+        /// avec elle. « Save configuration » l'enregistre pour l'exécutable.
+        /// </summary>
+        private void ApplyValueDisplay(MenuItem item, bool isCpu)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            bool wanted = item.IsChecked;
+
+            foreach (Process target in GetDisplayTargets())
+            {
+                bool cpu;
+                bool memory;
+
+                DisplayPreferences.GetValueDisplay(target, out cpu, out memory);
+
+                if (isCpu)
+                {
+                    cpu = wanted;
+                }
+                else
+                {
+                    memory = wanted;
+                }
+
+                DisplayPreferences.SetValueDisplayForInstance(target, cpu, memory);
+            }
+
+            ValueDisplayChanged();
+        }
+
+        /// <summary>
+        /// Prévenu quand l'affichage des valeurs change : la fenêtre repeint les
+        /// tuiles sans attendre le relevé suivant.
+        /// </summary>
+        public static Action ValueDisplayChanged = delegate { };
+
+        /// <summary>
+        /// Couleur de fond propre au processus. Grisée quand le chemin de
+        /// l'exécutable n'est pas lisible : il n'y a alors rien sur quoi
+        /// accrocher la couleur, exactement comme pour un réglage retenu.
+        /// </summary>
+        private MenuItem CreateBackgroundColorMenu()
+        {
+            MenuItem root = new MenuItem();
+            root.Header = BackgroundColorHeader;
+
+            if (!DisplayPreferences.CanRemember(this._process))
+            {
+                root.IsEnabled = false;
+                root.ToolTip = DisplayPreferences.DescribeWhyNotRememberable(this._process);
+                ToolTipService.SetShowOnDisabled(root, true);
+
+                return root;
+            }
+
+            MenuItem choose = new MenuItem();
+            choose.Header = "Choose…";
+            choose.Click += ChooseBackgroundColorClick;
+
+            root.Items.Add(choose);
+
+            MenuItem general = new MenuItem();
+            general.Header = "Use the general colour";
+            general.IsEnabled = DisplayPreferences.GetBackgroundColor(this._process) != null;
+            general.Click += ResetBackgroundColorClick;
+
+            root.Items.Add(general);
+
+            return root;
+        }
+
+        private void ChooseBackgroundColorClick(object sender, RoutedEventArgs e)
+        {
+            TileColorWindow window = new TileColorWindow(
+                "\"" + this._process.ProcessName + "\"",
+                DisplayPreferences.GetBackgroundColor(this._process));
+
+            window.Owner = Window.GetWindow(this);
+
+            if (window.ShowDialog() != true)
+            {
+                return;
+            }
+
+            string error;
+
+            if (!DisplayPreferences.TrySetBackgroundColor(this._process, window.Result, out error))
+            {
+                ReportSaveFailure(error);
+            }
+        }
+
+        private void ResetBackgroundColorClick(object sender, RoutedEventArgs e)
+        {
+            string error;
+
+            if (!DisplayPreferences.TrySetBackgroundColor(this._process, null, out error))
+            {
+                ReportSaveFailure(error);
+            }
         }
 
         /// <summary>
@@ -1309,7 +1758,8 @@ namespace ProcessAffinityUI
             {
                 case 1: return "Normal";
                 case 2: return "Double";
-                default: return scale + "×";
+                case 3: return "Triple";
+                default: return scale + " times";
             }
         }
 
@@ -1985,6 +2435,16 @@ namespace ProcessAffinityUI
                     // Gestionnaire des tâches. Le nommer évite de laisser croire
                     // qu'il s'agit du jeu de travail complet, bien plus grand.
                     "Memory: " + DescribeMemory(this._process.MemoryBytes) + " (private working set)";
+
+                // L'âge du dernier relevé, quand il n'est plus frais. C'est la
+                // seule chose qui distingue « 96 % maintenant » de « 96 % il y
+                // a huit heures », et c'est aussi ce qui rend visible une tuile
+                // restée en place alors que son processus a disparu.
+                if (IsSampleStale())
+                {
+                    text = text + "\r\nLast reading " + DescribeAge(this._process.SampleAgeSeconds)
+                           + " ago — this value is not current.";
+                }
 
                 if (!this._process.IsModifiable)
                 {

@@ -44,9 +44,45 @@ namespace ProcessAffinityUI
         /// <summary>Le fichier de règles illisible n'est signalé qu'une fois par session.</summary>
         private bool _ruleLoadErrorReported = false;
 
+        /// <summary>
+        /// Panneau des tuiles. Créé ici et non en XAML : un type défini dans le
+        /// même assembly y serait différé à la seconde passe du compilateur de
+        /// balisage, et tout ce code-behind, qui s'en sert partout, ne
+        /// compilerait plus à la première passe.
+        ///
+        /// Le nom reste celui du champ qu'engendrait le XAML, pour que les
+        /// quarante usages n'aient pas à changer.
+        /// </summary>
+        private readonly TilePanel processWrapPanel = new TilePanel();
+
+        /// <summary>
+        /// Faux tant que le constructeur n'a pas fini.
+        ///
+        /// Une case cochée dans le XAML lève son événement <c>Checked</c>
+        /// pendant <c>InitializeComponent</c>, donc avant que les contrôles
+        /// déclarés plus bas existent. Le piège s'est refermé trois fois : sur
+        /// la seconde case à cocher au lot 4d, sur le panneau au lot 6b, puis
+        /// sur les compteurs quand le panneau a cessé d'être nul parce qu'il
+        /// est désormais créé en champ.
+        ///
+        /// Un garde par contrôle ne tient pas : il faut un garde par
+        /// *moment*, et c'est celui-ci.
+        /// </summary>
+        private bool _isInitialized;
+
         public MainWindow()
         {
                 InitializeComponent();
+
+                this.processWrapPanel.Background = System.Windows.Media.Brushes.White;
+                this.processWrapPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
+                this.processWrapPanel.VerticalAlignment = VerticalAlignment.Stretch;
+
+                this.processScrollViewer.Content = this.processWrapPanel;
+
+                // Enregistré dans la portée de noms de la fenêtre : FindName
+                // continue de le trouver, comme lorsqu'il venait du XAML.
+                this.RegisterName("processWrapPanel", this.processWrapPanel);
 
                 this._processAffinityNotifyIcon = new System.Windows.Forms.NotifyIcon();
                 this._processAffinityNotifyIcon.Icon = new System.Drawing.Icon(Application.GetResourceStream(new Uri("/ProcessAffinity.ico", UriKind.RelativeOrAbsolute)).Stream);
@@ -86,6 +122,14 @@ namespace ProcessAffinityUI
                 // connaître le panneau.
                 Configuration.DisplayPreferences.Changed += this.ApplyDisplayPreferences;
 
+                // Les deux valeurs chiffrées se posent une fois : on les relit
+                // au démarrage, et un changement repeint les tuiles sans
+                // attendre le relevé suivant.
+                // Les valeurs chiffrées sont désormais propres à chaque tuile :
+                // rien à relire globalement, seulement de quoi repeindre quand
+                // elles changent.
+                ProcessUserControl.ValueDisplayChanged = this.RefreshProcessUserControlsDisplay;
+
                 // Une reprise de veille ne doit pas compter sur le relevé
                 // suivant : le diff ordinaire compare sa référence au système et
                 // reste aveugle à une entrée qui a quitté cette référence sans
@@ -114,6 +158,10 @@ namespace ProcessAffinityUI
                 ConfigurationCommands.ConflictResolver = this.AskWhichConfiguration;
 
                 this.Loaded += MainWindowLoaded;
+
+                // Dernière ligne du constructeur : tout ce que le XAML déclare
+                // existe désormais, et les événements prématurés sont passés.
+                this._isInitialized = true;
         }
 
         // La surcharge sans argument n'avait plus qu'un appelant, la restauration
@@ -171,6 +219,12 @@ namespace ProcessAffinityUI
             // le tri porte sur les tuiles en place, et il vaut donc aussi pour
             // les reconstructions — bascule de « Show services », rechargement,
             // retour depuis la zone de notification.
+            foreach (ProcessUserControl created in
+                     this.processWrapPanel.Children.OfType<ProcessUserControl>())
+            {
+                MarkReserved(created);
+            }
+
             ReorderProcessWrapPanel();
 
             SetCounters();
@@ -1551,6 +1605,8 @@ namespace ProcessAffinityUI
                 }
             }
 
+            MarkReserved(processUserControl);
+
             this.processWrapPanel.Children.Insert(index, processUserControl);
 
             // Les filtres s'appliquent aussi à ce qui apparaît après le
@@ -1584,6 +1640,8 @@ namespace ProcessAffinityUI
                     break;
                 }
             }
+
+            MarkReserved(processUserControl);
 
             this.processWrapPanel.Children.Insert(index, processUserControl);
 
@@ -1970,6 +2028,9 @@ namespace ProcessAffinityUI
                          this.processWrapPanel.Children.OfType<ProcessUserControl>())
                 {
                     processUserControl.ApplyScale();
+                    processUserControl.ApplyTileBackground();
+
+                    MarkReserved(processUserControl);
                 }
 
                 ReorderProcessWrapPanel();
@@ -2051,6 +2112,24 @@ namespace ProcessAffinityUI
         /// Bloc d'appartenance : les processus d'abord, les services ensuite,
         /// comme au chargement.
         /// </summary>
+        /// <summary>
+        /// Dit au panneau qu'une tuile appartient au bloc de tête réservé.
+        ///
+        /// Le panneau ne connaît pas l'épinglage, et n'a pas à le connaître :
+        /// il sait seulement qu'un début de pavage lui est réservé. Sans cette
+        /// marque, le comblement des trous place une tuile ordinaire devant une
+        /// épinglée qui n'a pas trouvé la place en fin de rangée.
+        /// </summary>
+        private static void MarkReserved(ProcessUserControl processUserControl)
+        {
+            bool reserved = GetPinRank(processUserControl) != int.MaxValue;
+
+            if (TilePanel.GetIsReserved(processUserControl) != reserved)
+            {
+                TilePanel.SetIsReserved(processUserControl, reserved);
+            }
+        }
+
         private static int GetBlockRank(UIElement element)
         {
             ProcessUserControl processUserControl = element as ProcessUserControl;
@@ -2241,6 +2320,13 @@ namespace ProcessAffinityUI
         /// </summary>
         private void RefreshProcessUserControlsDisplay()
         {
+            // Garde de moment : un événement levé pendant le chargement du
+            // XAML arrive avant que les compteurs existent.
+            if (!this._isInitialized)
+            {
+                return;
+            }
+
             foreach (ProcessUserControl processUserControl in this.processWrapPanel.Children.OfType<ProcessUserControl>())
             {
                 processUserControl.RefreshDisplay();

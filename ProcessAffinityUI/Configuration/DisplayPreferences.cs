@@ -1,4 +1,5 @@
 using System;
+using System.Windows.Media;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -75,6 +76,10 @@ namespace ProcessAffinityUI.Configuration
 
             /// <summary>Nom du service, pour distinguer deux entrées d'un même PID.</summary>
             public string ServiceName { get; set; }
+
+            public bool? ShowCpuValue { get; set; }
+
+            public bool? ShowMemoryValue { get; set; }
 
             public bool Pinned { get; set; }
 
@@ -514,6 +519,315 @@ namespace ProcessAffinityUI.Configuration
             error = null;
 
             string key = GetExecutableKey(process);
+
+            if (key == null)
+            {
+                return true;
+            }
+
+            scale = Clamp(scale);
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, int> stored = SettingsStore.Current.TileScales
+                                                 ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+                if (scale <= 1)
+                {
+                    if (!stored.Remove(key))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    int current;
+
+                    if (stored.TryGetValue(key, out current) && current == scale)
+                    {
+                        return true;
+                    }
+
+                    stored[key] = scale;
+                }
+
+                SettingsStore.Current.TileScales = stored.Count == 0 ? null : stored;
+            }
+
+            bool written = SettingsStore.TrySave(out error);
+
+            Raise();
+
+            return written;
+        }
+
+        // ------------------------------------------- valeurs sur la tuile
+
+        /// <summary>
+        /// Valeurs chiffrées affichées sur une tuile.
+        ///
+        /// Ce réglage était global : les deux entrées du menu contextuel
+        /// agissaient sur toutes les tuiles. Choisir explicitement une tuile
+        /// revient pourtant à écarter les autres, et l'argument de
+        /// comparabilité ne tient pas — un chiffre affiché sur une seule tuile
+        /// n'est pas moins lisible, il est simplement le seul.
+        ///
+        /// Même portée que la taille et la couleur : un geste direct ne vaut
+        /// que pour l'instance, un réglage enregistré vaut pour l'exécutable.
+        /// </summary>
+        public static void GetValueDisplay(Process process, out bool cpu, out bool memory)
+        {
+            cpu = false;
+            memory = false;
+
+            if (process == null)
+            {
+                return;
+            }
+
+            lock (SyncRoot)
+            {
+                InstanceSetting instance = FindInstance(process, false);
+
+                // Trois états et non deux : « pas de réglage d'instance » se
+                // distingue de « réglage d'instance à faux », sans quoi une
+                // tuile ne pourrait jamais éteindre ce que l'exécutable allume.
+                if (instance != null && instance.ShowCpuValue != null)
+                {
+                    cpu = instance.ShowCpuValue.Value;
+                    memory = instance.ShowMemoryValue ?? false;
+
+                    return;
+                }
+
+                GetValueDisplayByKey(GetExecutableKey(process), out cpu, out memory);
+            }
+        }
+
+        public static void GetValueDisplayByKey(string key, out bool cpu, out bool memory)
+        {
+            cpu = false;
+            memory = false;
+
+            if (key == null)
+            {
+                return;
+            }
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, string> stored = SettingsStore.Current.TileValues;
+
+                string text;
+
+                if (stored == null || !stored.TryGetValue(key, out text) || text == null)
+                {
+                    return;
+                }
+
+                cpu = text.IndexOf("cpu", StringComparison.OrdinalIgnoreCase) >= 0;
+                memory = text.IndexOf("ram", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+        }
+
+        public static void SetValueDisplayForInstance(Process process, bool cpu, bool memory)
+        {
+            lock (SyncRoot)
+            {
+                InstanceSetting instance = FindInstance(process, true);
+
+                if (instance == null)
+                {
+                    return;
+                }
+
+                instance.ShowCpuValue = cpu;
+                instance.ShowMemoryValue = memory;
+            }
+
+            Raise();
+        }
+
+        public static bool TrySetValueDisplayForExecutable(
+            Process process, bool cpu, bool memory, out string error)
+        {
+            return TrySetValueDisplayByKey(GetExecutableKey(process), cpu, memory, out error);
+        }
+
+        public static bool TrySetValueDisplayByKey(string key, bool cpu, bool memory, out string error)
+        {
+            error = null;
+
+            if (key == null)
+            {
+                return true;
+            }
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, string> stored = SettingsStore.Current.TileValues
+                                                    ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                // Rien d'allumé ne laisse aucune trace : le fichier ne porte
+                // que ce qui s'écarte de l'ordinaire.
+                if (!cpu && !memory)
+                {
+                    if (!stored.Remove(key))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    string text = cpu && memory ? "cpu,ram" : cpu ? "cpu" : "ram";
+
+                    string current;
+
+                    if (stored.TryGetValue(key, out current) && current == text)
+                    {
+                        return true;
+                    }
+
+                    stored[key] = text;
+                }
+
+                SettingsStore.Current.TileValues = stored.Count == 0 ? null : stored;
+            }
+
+            bool written = SettingsStore.TrySave(out error);
+
+            Raise();
+
+            return written;
+        }
+
+        // ------------------------------------------------- couleur de fond
+
+        /// <summary>
+        /// Clé persistante construite depuis un chemin, pour les appelants qui
+        /// n'ont pas d'entrée vivante sous la main — l'édition d'une
+        /// configuration, par exemple, qui ne connaît qu'un chemin.
+        /// </summary>
+        public static string GetKeyFromExecutablePath(string executablePath)
+        {
+            return string.IsNullOrEmpty(executablePath) ? null : PathPrefix + executablePath;
+        }
+
+        /// <summary>
+        /// Couleur de fond propre à ce processus, ou null quand il suit la
+        /// palette générale.
+        ///
+        /// Une couleur posée ici l'emporte sur le rôle « Tile background » des
+        /// réglages généraux : c'est tout l'intérêt, repérer un programme dans
+        /// une grille de quatre cents tuiles.
+        /// </summary>
+        public static Color? GetBackgroundColor(Process process)
+        {
+            return GetBackgroundColorByKey(GetExecutableKey(process));
+        }
+
+        public static Color? GetBackgroundColorByKey(string key)
+        {
+            if (key == null)
+            {
+                return null;
+            }
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, string> stored = SettingsStore.Current.TileBackgrounds;
+
+                string text;
+
+                if (stored == null || !stored.TryGetValue(key, out text))
+                {
+                    return null;
+                }
+
+                Color color;
+
+                // Valeur illisible : on retombe sur la palette générale plutôt
+                // que de peindre n'importe quoi.
+                return ColorPalette.TryParse(text, out color) ? color : (Color?)null;
+            }
+        }
+
+        public static bool TrySetBackgroundColor(Process process, Color? color, out string error)
+        {
+            return TrySetBackgroundColorByKey(GetExecutableKey(process), color, out error);
+        }
+
+        /// <summary>
+        /// Pose la couleur, ou la retire quand <paramref name="color"/> est
+        /// null — c'est le retour à la couleur générale.
+        /// </summary>
+        public static bool TrySetBackgroundColorByKey(string key, Color? color, out string error)
+        {
+            error = null;
+
+            if (key == null)
+            {
+                return true;
+            }
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, string> stored = SettingsStore.Current.TileBackgrounds
+                                                    ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                if (color == null)
+                {
+                    if (!stored.Remove(key))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    string text = ColorPalette.Format(color.Value);
+
+                    string current;
+
+                    if (stored.TryGetValue(key, out current) && current == text)
+                    {
+                        return true;
+                    }
+
+                    stored[key] = text;
+                }
+
+                SettingsStore.Current.TileBackgrounds = stored.Count == 0 ? null : stored;
+            }
+
+            bool written = SettingsStore.TrySave(out error);
+
+            Raise();
+
+            return written;
+        }
+
+        /// <summary>Échelle persistante lue depuis une clé, pour l'édition d'une configuration.</summary>
+        public static int GetScaleByKey(string key)
+        {
+            if (key == null)
+            {
+                return 1;
+            }
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, int> stored = SettingsStore.Current.TileScales;
+
+                int scale;
+
+                return stored != null && stored.TryGetValue(key, out scale) ? Clamp(scale) : 1;
+            }
+        }
+
+        /// <summary>Pose l'échelle persistante depuis une clé.</summary>
+        public static bool TrySetScaleByKey(string key, int scale, out string error)
+        {
+            error = null;
 
             if (key == null)
             {
