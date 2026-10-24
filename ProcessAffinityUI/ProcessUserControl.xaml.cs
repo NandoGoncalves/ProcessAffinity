@@ -714,7 +714,7 @@ namespace ProcessAffinityUI
         {
             set
             {
-                this.ProcessIDlabel.Background = value;
+                this.ProcessNameBand.Background = value;
                 this.ProcessIDlabel.Foreground = GetProcessNameForegroundBrush(value);
             }
         }

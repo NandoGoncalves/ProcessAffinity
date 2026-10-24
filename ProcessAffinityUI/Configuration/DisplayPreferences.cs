@@ -85,7 +85,14 @@ namespace ProcessAffinityUI.Configuration
 
             public int PinOrder { get; set; }
 
-            public int Scale { get; set; }
+            /// <summary>
+            /// Null quand l'utilisateur n'a rien choisi pour cette instance.
+            /// Trois états et non deux, pour la même raison que les deux
+            /// valeurs chiffrées ci-dessus : une instance remise à Normal doit
+            /// primer sur une taille retenue pour le programme, ce qu'un 1
+            /// indiscernable de l'absence de choix interdisait.
+            /// </summary>
+            public int? Scale { get; set; }
         }
 
         private static int _nextPinOrder;
@@ -198,7 +205,6 @@ namespace ProcessAffinityUI.Configuration
                 CreateTime = process.CreateTime,
                 IsService = process.IsService,
                 ServiceName = process.IsService ? process.ProcessName : null,
-                Scale = 1,
             };
 
             InstanceSettings.Add(added);
@@ -435,9 +441,13 @@ namespace ProcessAffinityUI.Configuration
             {
                 InstanceSetting instance = FindInstance(process, false);
 
-                if (instance != null && instance.Scale > 1)
+                // Le choix d'instance prime dès qu'il existe, Normal compris.
+                // Le tester par « > 1 » rendait la taille retenue pour le
+                // programme impossible à contredire sur une tuile : choisir
+                // Normal retombait sur elle, et la tuile ne bougeait pas.
+                if (instance != null && instance.Scale != null)
                 {
-                    return Clamp(instance.Scale);
+                    return Clamp(instance.Scale.Value);
                 }
 
                 string key = GetExecutableKey(process);
@@ -466,7 +476,9 @@ namespace ProcessAffinityUI.Configuration
             {
                 InstanceSetting instance = FindInstance(process, false);
 
-                return instance == null ? 1 : Clamp(instance.Scale);
+                return instance == null || instance.Scale == null
+                       ? 1
+                       : Clamp(instance.Scale.Value);
             }
         }
 
@@ -489,14 +501,18 @@ namespace ProcessAffinityUI.Configuration
             }
         }
 
-        /// <summary>Agrandit cette instance seulement.</summary>
+        /// <summary>
+        /// Fixe la taille de cette instance seulement. Normal s'enregistre
+        /// comme les autres : c'est un choix, pas une absence de choix, et il
+        /// doit pouvoir contredire la taille retenue pour le programme.
+        /// </summary>
         public static void SetScaleForInstance(Process process, int scale)
         {
             scale = Clamp(scale);
 
             lock (SyncRoot)
             {
-                InstanceSetting instance = FindInstance(process, scale > 1);
+                InstanceSetting instance = FindInstance(process, true);
 
                 if (instance == null)
                 {
