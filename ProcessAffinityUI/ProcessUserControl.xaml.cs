@@ -2707,12 +2707,14 @@ namespace ProcessAffinityUI
                 return;
             }
 
-            // StaysOpen : une infobulle ouverte par programme, ToolTipService la
-            // referme au premier mouvement de souris hors de la tuile — et la
-            // souris est alors là où était l'entrée de menu, pas sur la tuile.
-            // Le sondage la tient donc ouverte lui-même, et la referme sur
-            // minuterie : la réponse doit se voir sans survol.
-            this._toolTip.StaysOpen = true;
+            // On ouvre l'infobulle pour que la réponse se voie sans survol, et
+            // une minuterie la referme.
+            //
+            // Ne jamais toucher à StaysOpen : il vaut déjà true, et
+            // ToolTipService lève une NotSupportedException sur une infobulle
+            // posée via la propriété ToolTip dont StaysOpen serait false. Le
+            // remettre à false « pour la rendre au survol ordinaire » faisait
+            // donc lever six secondes après chaque sondage.
             this._toolTip.IsOpen = true;
 
             if (this._probeTimer == null)
@@ -2737,11 +2739,9 @@ namespace ProcessAffinityUI
                 return;
             }
 
+            // La refermer suffit : ToolTipService la gouverne de nouveau au
+            // survol, et la réponse reste dans son contenu.
             this._toolTip.IsOpen = false;
-
-            // Rendue au survol ordinaire : c'est ToolTipService qui la gouverne
-            // de nouveau. La réponse, elle, reste dans son contenu.
-            this._toolTip.StaysOpen = false;
         }
 
         private void ToolTipOpened(object sender, RoutedEventArgs e)
