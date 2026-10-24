@@ -43,7 +43,12 @@
          occupe maintenant la largeur entière, quelle que soit l'échelle. -->
     <Grid Name="TileRoot">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
+            <!-- Étoile et non Auto : la hauteur de la tuile est imposée, et
+                 c'est cette rangée qui absorbe tout reste d'arrondi entre la
+                 zone des courbes et la place disponible. Avec deux rangées à
+                 taille imposée, un reste aurait repoussé le bandeau du bas de
+                 la tuile — ce qu'il ne doit jamais quitter. -->
+            <RowDefinition Height="*" />
             <!-- Le bandeau gagne une ligne par cran d'agrandissement : le nom
                  garde sa taille, mais une tuile triple lui offre trois lignes.
                  La hauteur est posée par le code, qui la retire d'autant à la
@@ -52,7 +57,7 @@
             <RowDefinition x:Name="BandRow" Height="27" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Name="CurvesHost" Width="102" Height="56">
+        <Grid Grid.Row="0" Name="CurvesHost" Width="102" Height="56" VerticalAlignment="Bottom">
 
             <!-- Mémoire : les mêmes colonnes que le CPU, déclarées avant lui pour
                  passer derrière. Gris foncé, sans dégradé : ce sont un arrière-plan,
@@ -140,7 +145,24 @@
              libellés qui débordent même de trois lignes. La largeur, elle, est
              posée par le code et jamais déduite du texte — c'est ce qui avait
              élargi les tuiles aux noms longs. -->
-        <TextBlock Grid.Row="1" Text="0000" Name="ProcessIDlabel" VerticalAlignment="Top" HorizontalAlignment="Stretch" TextAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="13" LineStackingStrategy="BlockLineHeight" Padding="0,7,0,0" FontSize="10" FontWeight="SemiBold" Opacity="1" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" />
+        <!-- C'est le Border qui porte la couleur du bandeau, et non le
+             TextBlock : celui-ci ne fait que la hauteur de son texte, si bien
+             qu'une rangée de 53 px sur une tuile triple laissait trente-trois
+             pixels de tuile nue sous un bandeau d'une ligne. Le Border, lui,
+             remplit la rangée, et le bandeau est donc bien au bas de la tuile
+             quelle que soit l'échelle.
+
+             Le texte y est centré verticalement : avec une à trois lignes
+             possibles selon l'échelle et la longueur du nom, le haut de la
+             rangée n'est pas un bon point d'ancrage.
+
+             Le clic droit est câblé sur les deux : MouseRightButtonDown est un
+             événement routé direct et ne remonte donc pas du texte au Border.
+             Sans le second, le menu ne serait pas sorti en cliquant sur le nom
+             lui-même, qui est précisément là où l'on clique. -->
+        <Border Grid.Row="1" Name="ProcessNameBand" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown">
+            <TextBlock Text="0000" Name="ProcessIDlabel" VerticalAlignment="Center" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" HorizontalAlignment="Stretch" TextAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="13" LineStackingStrategy="BlockLineHeight" FontSize="10" FontWeight="SemiBold" Opacity="1" />
+        </Border>
 
     </Grid>
 
