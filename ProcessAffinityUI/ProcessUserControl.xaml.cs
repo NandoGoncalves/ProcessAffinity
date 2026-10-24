@@ -63,23 +63,22 @@ namespace ProcessAffinityUI
         /// <summary>Bordure de la tuile, 3 px de chaque côté (cf. XAML).</summary>
         private const double TileBorder = 6d;
 
-        /// <summary>Hauteur du bandeau de nom à l'échelle normale (XAML).</summary>
-        private const double BandHeight = 27d;
-
         /// <summary>
-        /// Hauteur d'une ligne du bandeau, posée explicitement dans le XAML.
+        /// Hauteur du bandeau de nom (XAML), la même à tous les crans.
         ///
-        /// Le bandeau gagne une ligne par cran : une tuile triple en offre
-        /// trois. Le nom garde sa taille — c'est la place qui augmente, pas les
-        /// caractères — et un libellé de service « Service - Hôte », qui atteint
-        /// 71 caractères sur cette machine et réclame 339 px, tient alors
-        /// largement là où une seule ligne de 318 px le tronquait encore.
+        /// Elle ne suit pas l'agrandissement, et c'est voulu. La version 2.15.2
+        /// lui donnait une ligne de plus par cran pour loger le seul libellé de
+        /// 71 caractères de cette machine : les 427 autres tuiles payaient trois
+        /// lignes de bandeau pour un nom qui en demandait une. Le nom qui
+        /// déborde est tronqué par l'ellipse à toutes les échelles, et
+        /// l'infobulle donne le libellé entier — ce qui suffit pour un cas sur
+        /// 428.
         ///
-        /// Ce que cela coûte : treize pixels de courbes par cran, soit 9 % de
-        /// leur hauteur au double et 11 % au triple. Un nom illisible sur une
-        /// tuile qu'on a justement agrandie pour la regarder coûtait plus.
+        /// Les treize pixels par cran ainsi rendus reviennent aux courbes, qui
+        /// retrouvent la hauteur qu'elles avaient avant 2.15.2 : 145 px au
+        /// double, 234 au triple.
         /// </summary>
-        private const double BandLineHeight = 13d;
+        private const double BandHeight = 27d;
 
         /// <summary>
         /// Taille d'une tuile à l'échelle normale, et donc de la cellule du
@@ -529,7 +528,9 @@ namespace ProcessAffinityUI
         /// ferait tomber entre deux pixels, donc flouter leurs bords.
         ///
         /// Le facteur vertical, lui, remplit ce qui reste de la hauteur du
-        /// bloc une fois le bandeau et les bordures retirés. Il n'est pas
+        /// bloc une fois le bandeau et les bordures retirés. Le bandeau gardant
+        /// la même hauteur à tous les crans, ce reste est celui d'avant 2.15.2 :
+        /// 145 px de courbes au double, 234 au triple. Il n'est pas
         /// entier — 2,59 au double, 4,18 au triple — et cela ne coûte rien :
         /// une hauteur de barre encode un pourcentage, elle ne tombe déjà sur
         /// aucune grille. Ce que cela gagne, c'est la bande vide sous une tuile
@@ -544,7 +545,7 @@ namespace ProcessAffinityUI
             for (int scale = 1; scale <= DisplayPreferences.MaximumScale; scale++)
             {
                 double verticalFactor =
-                    ((NormalTileHeight * scale) - GetBandHeight(scale) - TileBorder) / CPUUsageBarHeight;
+                    ((NormalTileHeight * scale) - BandHeight - TileBorder) / CPUUsageBarHeight;
 
                 // À l'échelle normale le calcul rend exactement 1 : on garde
                 // l'identité, qui n'est pas une transformation à appliquer.
@@ -561,19 +562,6 @@ namespace ProcessAffinityUI
             }
 
             return transforms;
-        }
-
-        /// <summary>
-        /// Hauteur du bandeau pour une échelle : une ligne de plus par cran.
-        /// </summary>
-        private static double GetBandHeight(int scale)
-        {
-            if (scale < 1)
-            {
-                scale = 1;
-            }
-
-            return BandHeight + (BandLineHeight * (scale - 1));
         }
 
         private static Transform GetCurvesTransform(int scale)
@@ -641,16 +629,9 @@ namespace ProcessAffinityUI
                 this.ProcessIDlabel.Width = innerWidth;
             }
 
-            // Une ligne de bandeau par cran. La largeur reste imposée par le
-            // bloc ; seule la hauteur suit, et elle est retirée d'autant aux
-            // courbes par la transformation ci-dessous.
-            double bandHeight = GetBandHeight(scale);
-
-            if (this.BandRow.Height.Value != bandHeight)
-            {
-                this.BandRow.Height = new GridLength(bandHeight);
-            }
-
+            // Le bandeau ne change pas de hauteur : la rangée garde celle du
+            // XAML à tous les crans. Seule sa largeur suit la tuile, par la
+            // largeur imposée ci-dessus.
             if (this.CPUUsageValueTextBlock.MaxWidth != innerWidth)
             {
                 this.CPUUsageValueTextBlock.MaxWidth = innerWidth;
