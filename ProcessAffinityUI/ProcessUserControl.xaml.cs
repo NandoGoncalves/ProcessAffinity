@@ -50,8 +50,15 @@ namespace ProcessAffinityUI
         private const string MemoryValueHeader = "RAM value on tile";
         private const string BackgroundColorHeader = "Background colour";
 
-        /// <summary>Hauteur de l'emplacement d'une barre, en pixels (cf. XAML).</summary>
+        /// <summary>Hauteur de l.emplacement d.une barre, en pixels (cf. XAML).</summary>
         private const double CPUUsageBarHeight = 56d;
+
+        /// <summary>
+        /// Largeur de la zone des courbes, en pixels (cf. CurvesHost dans le
+        /// XAML). C.est elle qui fixe la largeur de la tuile : rien d.autre ne
+        /// doit peser sur la mesure, sans quoi un nom long elargit la tuile.
+        /// </summary>
+        private const double CurvesWidth = 102d;
 
         /// <summary>
         /// Fonds du bandeau de nom. Les quatre teintes viennent de la palette :
@@ -534,6 +541,30 @@ namespace ProcessAffinityUI
             if (scale < 1 || scale >= ScaleTransforms.Length)
             {
                 scale = 1;
+            }
+
+            // La largeur de la tuile doit venir des seules courbes.
+            //
+            // Le bandeau de nom est étiré et tronqué par une ellipse, mais un
+            // TextBlock annonce malgré tout la largeur de son texte entier :
+            // « Dell.TechHub.Instrumentation.SubAgent.exe » faisait une tuile
+            // deux fois plus large que ses voisines. Il portait auparavant une
+            // largeur fixe de 96 px, qui l'empêchait de peser sur la mesure ;
+            // la structure en deux rangées la lui avait retirée.
+            //
+            // On la lui rend, calculée depuis l'échelle. La valeur chiffrée est
+            // plafonnée de même : elle est courte, mais rien ne garantit qu'un
+            // « 1023,9 MB - 100% » reste sous la largeur des courbes.
+            double curvesWidth = CurvesWidth * scale;
+
+            if (this.ProcessIDlabel.Width != curvesWidth)
+            {
+                this.ProcessIDlabel.Width = curvesWidth;
+            }
+
+            if (this.CPUUsageValueTextBlock.MaxWidth != curvesWidth)
+            {
+                this.CPUUsageValueTextBlock.MaxWidth = curvesWidth;
             }
 
             Transform wanted = ScaleTransforms[scale];
