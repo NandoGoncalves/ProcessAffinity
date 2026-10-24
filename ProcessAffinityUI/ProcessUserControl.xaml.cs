@@ -56,9 +56,23 @@ namespace ProcessAffinityUI
         /// <summary>
         /// Largeur de la zone des courbes, en pixels (cf. CurvesHost dans le
         /// XAML). C.est elle qui fixe la largeur de la tuile : rien d.autre ne
-        /// doit peser sur la mesure, sans quoi un nom long elargit la tuile.
+        /// doit peser sur la mesure, sans quoi un nom long élargit la tuile.
         /// </summary>
         private const double CurvesWidth = 102d;
+
+        /// <summary>Bordure de la tuile, 3 px de chaque côté (cf. XAML).</summary>
+        private const double TileBorder = 6d;
+
+        /// <summary>Hauteur du bandeau de nom (seconde rangée du XAML).</summary>
+        private const double BandHeight = 27d;
+
+        /// <summary>
+        /// Taille d'une tuile à l'échelle normale, et donc de la cellule du
+        /// panneau. Une tuile agrandie occupe exactement n fois cette taille :
+        /// c'est ce qui lui fait remplir son bloc sans laisser de trou.
+        /// </summary>
+        private const double NormalTileWidth = CurvesWidth + TileBorder;
+        private const double NormalTileHeight = CPUUsageBarHeight + BandHeight + TileBorder;
 
         /// <summary>
         /// Fonds du bandeau de nom. Les quatre teintes viennent de la palette :
@@ -502,22 +516,53 @@ namespace ProcessAffinityUI
         /// </summary>
         private static readonly Transform[] ScaleTransforms = BuildScaleTransforms();
 
+        /// <summary>
+        /// Transformations d'échelle des courbes, gelées et partagées.
+        ///
+        /// Le facteur horizontal est l'entier demandé : les barres font cinq
+        /// pixels de large avec un pas de cinq, et un facteur fractionnaire les
+        /// ferait tomber entre deux pixels, donc flouter leurs bords.
+        ///
+        /// Le facteur vertical, lui, remplit ce qui reste de la hauteur du
+        /// bloc une fois le bandeau et les bordures retirés. Il n'est pas
+        /// entier — 2,59 au double, 4,18 au triple — et cela ne coûte rien :
+        /// une hauteur de barre encode un pourcentage, elle ne tombe déjà sur
+        /// aucune grille. Ce que cela gagne, c'est la bande vide sous une tuile
+        /// agrandie, qui laissait un trou dans le panneau.
+        /// </summary>
         private static Transform[] BuildScaleTransforms()
         {
             Transform[] transforms = new Transform[DisplayPreferences.MaximumScale + 1];
 
             transforms[0] = Transform.Identity;
-            transforms[1] = Transform.Identity;
 
-            for (int scale = 2; scale <= DisplayPreferences.MaximumScale; scale++)
+            for (int scale = 1; scale <= DisplayPreferences.MaximumScale; scale++)
             {
-                ScaleTransform transform = new ScaleTransform(scale, scale);
+                double verticalFactor =
+                    ((NormalTileHeight * scale) - BandHeight - TileBorder) / CPUUsageBarHeight;
+
+                // À l'échelle normale le calcul rend exactement 1 : on garde
+                // l'identité, qui n'est pas une transformation à appliquer.
+                if (scale == 1)
+                {
+                    transforms[1] = Transform.Identity;
+                    continue;
+                }
+
+                ScaleTransform transform = new ScaleTransform(scale, verticalFactor);
                 transform.Freeze();
 
                 transforms[scale] = transform;
             }
 
             return transforms;
+        }
+
+        private static Transform GetCurvesTransform(int scale)
+        {
+            return scale < 1 || scale >= ScaleTransforms.Length
+                ? Transform.Identity
+                : ScaleTransforms[scale];
         }
 
         /// <summary>
@@ -555,19 +600,35 @@ namespace ProcessAffinityUI
             // On la lui rend, calculée depuis l'échelle. La valeur chiffrée est
             // plafonnée de même : elle est courte, mais rien ne garantit qu'un
             // « 1023,9 MB - 100% » reste sous la largeur des courbes.
-            double curvesWidth = CurvesWidth * scale;
+            // La tuile occupe exactement n cellules sur n : c'est ce qui lui
+            // fait remplir son bloc dans le panneau, sans la bande vide qui
+            // restait dessous.
+            double tileWidth = NormalTileWidth * scale;
+            double tileHeight = NormalTileHeight * scale;
 
-            if (this.ProcessIDlabel.Width != curvesWidth)
+            if (this.Width != tileWidth)
             {
-                this.ProcessIDlabel.Width = curvesWidth;
+                this.Width = tileWidth;
             }
 
-            if (this.CPUUsageValueTextBlock.MaxWidth != curvesWidth)
+            if (this.Height != tileHeight)
             {
-                this.CPUUsageValueTextBlock.MaxWidth = curvesWidth;
+                this.Height = tileHeight;
             }
 
-            Transform wanted = ScaleTransforms[scale];
+            double innerWidth = tileWidth - TileBorder;
+
+            if (this.ProcessIDlabel.Width != innerWidth)
+            {
+                this.ProcessIDlabel.Width = innerWidth;
+            }
+
+            if (this.CPUUsageValueTextBlock.MaxWidth != innerWidth)
+            {
+                this.CPUUsageValueTextBlock.MaxWidth = innerWidth;
+            }
+
+            Transform wanted = GetCurvesTransform(scale);
 
             // Sur CurvesHost et non sur la tuile : seules les courbes — barres
             // de CPU, barres de mémoire et jauge — changent de taille. L'icône,
