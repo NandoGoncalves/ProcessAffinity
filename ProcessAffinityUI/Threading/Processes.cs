@@ -337,6 +337,13 @@ namespace ProcessAffinityUI.Threading
         /// Dix secondes pour un intervalle d'une seconde : un tick en retard
         /// n'a rien d'anormal, dix secondes de trou veulent dire que la machine
         /// a dormi ou que le thread a été affamé.
+        ///
+        /// C'est ce détecteur, et non l'événement d'alimentation, qui fait le
+        /// travail sur une machine en veille moderne : mesuré sur une veille
+        /// réelle de 14 min 17 s, Windows n'a levé aucun PowerModeChanged, le
+        /// mode faible consommation S0 ne produisant pas le Resume historique.
+        /// Le trou a été vu, la resynchronisation faite, et la liste est
+        /// revenue sans aucune tuile périmée.
         /// </summary>
         private const double ResynchronizationGapSeconds = 10d;
 

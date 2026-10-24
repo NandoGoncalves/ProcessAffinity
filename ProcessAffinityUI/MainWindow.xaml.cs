@@ -90,6 +90,19 @@ namespace ProcessAffinityUI
                 // suivant : le diff ordinaire compare sa référence au système et
                 // reste aveugle à une entrée qui a quitté cette référence sans
                 // quitter la liste. On resynchronise franchement.
+                //
+                // Mesuré sur une veille réelle de 14 min 17 s : cet événement
+                // n'arrive pas. La machine n'offre que le mode faible
+                // consommation S0 — « Modern Standby », le seul que son
+                // microprogramme expose, S1 à S3 étant indisponibles — et
+                // Windows n'y lève pas le PowerModes.Resume historique. C'est
+                // donc le détecteur de trou d'horloge de Processes qui a fait
+                // le travail, et la liste est revenue sans aucune tuile
+                // périmée.
+                //
+                // On garde malgré tout cet abonnement : il coûte un détachement
+                // à la fermeture, et il couvre les machines qui, elles,
+                // dorment en S3. Mais il ne faut pas compter sur lui seul.
                 Microsoft.Win32.SystemEvents.PowerModeChanged += this.PowerModeChanged;
 
                 ProcessUserControl.ClearSelectionRequested = this.ClearSelection;
