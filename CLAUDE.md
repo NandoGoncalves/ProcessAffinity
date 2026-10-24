@@ -88,6 +88,26 @@ processeur logique dans l'IHM.
   l'encadrer.
 - **Processus protégés** (`System`, `csrss`, `Registry`…) : `TotalProcessorTime`
   lève. À gérer dès la boucle de collecte, sans polluer les journaux.
+- **Reprise de veille** : `SystemEvents.PowerModeChanged` ne se déclenche **pas**
+  en veille moderne — mode faible consommation S0, « Modern Standby » —, qui est
+  le **seul mode disponible sur la machine de développement** : S1, S2 et S3 y
+  sont absents, le microprogramme ne les prenant pas en charge. Ce mode ne
+  produit pas le `PowerModes.Resume` historique. Toute resynchronisation qui en
+  dépendrait ne s'exécuterait donc jamais ici.
+  Vérifier les modes d'une machine avant de s'y fier : `powercfg /a` liste les
+  états de veille disponibles et, pour chaque état absent, la raison de son
+  absence. Le constat est ainsi reproductible ailleurs — une machine qui dort
+  en S3 lèvera bien l'événement.
+  La parade qui fonctionne est un **détecteur de trou d'horloge murale** entre
+  deux relevés, jamais un `Stopwatch` : QPC ne s'écoule pas pendant la veille,
+  si bien qu'un `Stopwatch` ne voit aucun trou là où huit heures ont passé.
+  Mesuré sur une veille réelle de 14 min 17 s : aucun événement
+  d'alimentation, trou de 856,6 s détecté, resynchronisation faite, zéro tuile
+  périmée sur 431 au premier relevé suivant. L'abonnement à l'événement est
+  conservé pour les machines en S3, mais il ne suffit pas.
+  Le « avant » de cette correction n'a pas été mesuré sous veille réelle, la
+  cause ayant été établie en conditions déterministes.
+
 - **Groupes de processeurs** : `Process.ProcessorAffinity` ne couvre qu'un seul
   groupe, donc 64 processeurs logiques au maximum. Au-delà, il faut
   `SetThreadGroupAffinity` en P/Invoke.

@@ -330,10 +330,50 @@ namespace ProcessAffinityUI.Threading
             }
         }
 
+        /// <summary>
+        /// Écart d'horloge murale au-delà duquel on ne fait plus confiance au
+        /// seul diff et l'on resynchronise tout.
+        ///
+        /// Dix secondes pour un intervalle d'une seconde : un tick en retard
+        /// n'a rien d'anormal, dix secondes de trou veulent dire que la machine
+        /// a dormi ou que le thread a été affamé.
+        ///
+        /// C'est ce détecteur, et non l'événement d'alimentation, qui fait le
+        /// travail sur une machine en veille moderne : mesuré sur une veille
+        /// réelle de 14 min 17 s, Windows n'a levé aucun PowerModeChanged, le
+        /// mode faible consommation S0 ne produisant pas le Resume historique.
+        /// Le trou a été vu, la resynchronisation faite, et la liste est
+        /// revenue sans aucune tuile périmée.
+        /// </summary>
+        private const double ResynchronizationGapSeconds = 10d;
+
+        private DateTime _lastTickUtc = DateTime.MinValue;
+
         private void ListenCPUUsages(CancellationToken cancellationToken)
         {
             while (!cancellationToken.IsCancellationRequested)
             {
+                // Horloge murale et non Stopwatch : QPC ne s'écoule pas pendant
+                // une mise en veille, si bien qu'un Stopwatch ne verrait aucun
+                // trou là où huit heures ont passé.
+                DateTime now = DateTime.UtcNow;
+
+                if (this._lastTickUtc != DateTime.MinValue
+                    && (now - this._lastTickUtc).TotalSeconds > ResynchronizationGapSeconds)
+                {
+                    try
+                    {
+                        this.Resynchronize();
+                    }
+                    catch
+                    {
+                        // Une resynchronisation en échec ne doit pas arrêter
+                        // l'échantillonnage.
+                    }
+                }
+
+                this._lastTickUtc = now;
+
                 try
                 {
                     SetCPUUsages();
@@ -360,6 +400,87 @@ namespace ProcessAffinityUI.Threading
                     break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Réconcilie la liste avec l'état réel du système, et non la référence
+        /// de diff avec cet état.
+        ///
+        /// C'est la différence qui compte : le diff ordinaire compare sa
+        /// référence au relevé, et ne peut donc rien faire d'une entrée qui a
+        /// quitté la référence tout en restant dans la liste. Ici on part de la
+        /// liste, c'est-à-dire de ce que l'utilisateur a sous les yeux, et toute
+        /// entrée dont le processus n'existe plus s'en va — quelle qu'ait été
+        /// la raison de son maintien.
+        ///
+        /// Appelée après un trou d'horloge, et à la reprise de veille.
+        /// Les créations ne sont pas forcées : elles passent par le diff
+        /// ordinaire au tick suivant, qui les mettra en file comme d'habitude.
+        /// </summary>
+        public void Resynchronize()
+        {
+            long timestamp;
+
+            Dictionary<int, SystemProcessTimes.ProcessTimes> processTimesByProcessID =
+                SystemProcessTimes.GetProcessTimes(out timestamp);
+
+            if (processTimesByProcessID == null)
+            {
+                return;
+            }
+
+            Process[] entries;
+
+            lock (this._syncRoot)
+            {
+                entries = this.ToArray();
+            }
+
+            List<int> deadProcessIDs = new List<int>();
+            HashSet<int> seen = new HashSet<int>();
+
+            foreach (Process entry in entries)
+            {
+                if (entry == null || entry.ProcessID == 0 || !seen.Add(entry.ProcessID))
+                {
+                    continue;
+                }
+
+                SystemProcessTimes.ProcessTimes processTimes;
+
+                if (!processTimesByProcessID.TryGetValue(entry.ProcessID, out processTimes))
+                {
+                    deadProcessIDs.Add(entry.ProcessID);
+                    continue;
+                }
+
+                // Date inconnue de notre côté : on ne conclut rien, le PID
+                // existe et c'est tout ce qu'on sait.
+                if (entry.CreateTime != 0 && processTimes.CreateTime != entry.CreateTime)
+                {
+                    deadProcessIDs.Add(entry.ProcessID);
+                }
+            }
+
+            foreach (int processID in deadProcessIDs)
+            {
+                lock (this._diffSyncRoot)
+                {
+                    if (this._knownProcessCreateTimes != null)
+                    {
+                        this._knownProcessCreateTimes.Remove(processID);
+                    }
+
+                    this._pendingCreations.Remove(processID);
+                }
+
+                this.RaiseProcessDeleted(processID);
+            }
+
+            // Les services ne figurent pas dans le relevé système : leur
+            // réconciliation passe par leur propre balayage, qu'on force ici
+            // plutôt que d'attendre jusqu'à cinq secondes.
+            this.DetectServiceChanges();
         }
 
         private void SetCPUUsages()
@@ -427,6 +548,9 @@ namespace ProcessAffinityUI.Threading
             {
                 this.DetectServiceChanges();
             }
+
+            // Les réglages d'affichage posés sur une instance meurent avec elle.
+            Configuration.DisplayPreferences.ForgetDeadInstances(processes);
 
             this.NotifySampleCompleted(processes);
         }
@@ -682,7 +806,7 @@ namespace ProcessAffinityUI.Threading
                     // qu'il faut sans retarder le tick du % CPU.
                     ApplyRule(process);
 
-                    this.AddCreatedProcess(process);
+                    this.AddCreatedProcess(process, createTime);
                 }
             }
         }
@@ -846,7 +970,24 @@ namespace ProcessAffinityUI.Threading
             }, TaskCreationOptions.LongRunning);
         }
 
-        private void AddCreatedProcess(Process process)
+        /// <summary>
+        /// Ajoute une entrée matérialisée, et réaffirme sa référence de diff.
+        ///
+        /// La réaffirmation ferme une course qui laissait des tuiles figées
+        /// jusqu'au rechargement manuel. Le PID entre dans
+        /// <c>_knownProcessCreateTimes</c> au moment où la matérialisation
+        /// réussit, mais l'entrée n'entre dans la liste qu'après
+        /// <c>ApplyRule</c> — qui écrit l'affinité et la priorité puis les
+        /// relit, donc qui prend du temps. Si le processus meurt dans cet
+        /// intervalle, le tick suivant retire le PID de la référence et ne
+        /// trouve rien à supprimer dans la liste ; l'entrée y arrive juste
+        /// après, sans référence, et plus aucun diff ne peut constater sa mort.
+        /// La tuile reste alors en place avec la dernière valeur relevée.
+        ///
+        /// C'est le cas des processus de courte durée — un utilitaire de mise à
+        /// jour qui vit quelques secondes —, et ils s'accumulent.
+        /// </summary>
+        private void AddCreatedProcess(Process process, long createTime)
         {
             bool added;
 
@@ -860,10 +1001,23 @@ namespace ProcessAffinityUI.Threading
                 }
             }
 
-            if (added)
+            if (!added)
             {
-                this.RaiseCreated(process);
+                return;
             }
+
+            lock (this._diffSyncRoot)
+            {
+                if (this._knownProcessCreateTimes != null && !process.IsService)
+                {
+                    // Posée après l'ajout : si le tick l'a retirée pendant
+                    // ApplyRule, elle revient, et la mort du processus sera
+                    // constatée au tick suivant.
+                    this._knownProcessCreateTimes[process.ProcessID] = createTime;
+                }
+            }
+
+            this.RaiseCreated(process);
         }
 
         /// <summary>

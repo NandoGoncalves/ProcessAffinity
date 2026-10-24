@@ -41,6 +41,8 @@ namespace ProcessAffinityUI
         private const string EfficiencyModeHeader = "Efficiency mode";
 
         /// <summary>Entrées d'affichage, communes à toutes les tuiles.</summary>
+        private const string KillHeader = "Kill";
+
         private const string PinHeader = "Pin to front";
         private const string UnpinHeader = "Unpin from front";
         private const string TileSizeHeader = "Tile size";
@@ -1093,7 +1095,7 @@ namespace ProcessAffinityUI
                 if (this._process.IsModifiable)
                 {
                     menuItem = new MenuItem();
-                    menuItem.Header = "Kill";
+                    menuItem.Header = KillHeader + scope;
                     ((MenuItem)menu.Items[menu.Items.Add(menuItem)]).Click += new RoutedEventHandler(ProcessUserControlContextMenuClick);
                 }
 
@@ -1142,47 +1144,72 @@ namespace ProcessAffinityUI
 
             menu.Items.Add(new Separator());
 
-            bool pinned = DisplayPreferences.IsPinned(this._process);
-            int affected = CountEntriesSharingKey();
-
+            // Épinglage de cette instance seulement. Le geste direct sur une
+            // tuile ne vaut que pour elle et disparaît avec le processus ; ce
+            // qui doit survivre passe par « Remember ».
             MenuItem pinItem = new MenuItem();
-            pinItem.Header = pinned ? UnpinHeader : PinHeader;
-
-            // La portée est annoncée avant le clic : une tuile de processus
-            // s'épingle par nom d'exécutable, donc avec toutes les instances du
-            // même programme. Vingt onglets de navigateur partent ensemble, et
-            // mieux vaut le savoir que le découvrir.
-            if (affected > 1)
-            {
-                pinItem.Header = pinItem.Header + " (" + affected + " tiles)";
-                pinItem.ToolTip = "This entry is identified by name, so the "
-                                  + affected + " running instances of \"" + this._process.ProcessName
-                                  + "\" move together.";
-                ToolTipService.SetShowOnDisabled(pinItem, true);
-            }
+            pinItem.Header = DisplayPreferences.IsPinned(this._process) ? UnpinHeader : PinHeader;
 
             ((MenuItem)menu.Items[menu.Items.Add(pinItem)]).Click +=
                 new RoutedEventHandler(ProcessUserControlContextMenuClick);
+
+            menu.Items.Add(CreateRememberItem(
+                DisplayPreferences.IsPinnedForExecutable(this._process),
+                RememberPinMenuItemClick,
+                "pinning"));
 
             menu.Items.Add(CreateTileSizeMenu());
         }
 
         /// <summary>
-        /// Nombre d'entrées que l'épinglage ou l'agrandissement emporterait avec
-        /// celle-ci, puisqu'elles partagent la même identité.
+        /// Entrée « retenir pour toutes les occurrences du programme ». C'est la
+        /// seule qui écrit sur le disque, et la seule qui porte sur plus d'une
+        /// tuile — d'où le décompte dans l'intitulé.
+        ///
+        /// Grisée quand le chemin de l'exécutable n'est pas lisible : il n'y a
+        /// alors rien sur quoi accrocher un réglage persistant. C'est le cas de
+        /// près des deux tiers des processus en session non élevée, et c'est
+        /// aussi pourquoi le geste direct reste, lui, toujours disponible.
         /// </summary>
-        private int CountEntriesSharingKey()
+        private MenuItem CreateRememberItem(bool isRemembered, RoutedEventHandler handler, string subject)
         {
-            Func<Process[]> source = SelectionSource;
+            MenuItem item = new MenuItem();
+            item.IsCheckable = true;
+            item.IsChecked = isRemembered;
 
-            if (source == null)
+            int affected = CountEntriesSharingExecutable();
+
+            item.Header = affected > 1
+                ? "Remember " + subject + " for all " + affected + " instances"
+                : "Remember " + subject + " for this program";
+
+            if (!DisplayPreferences.CanRemember(this._process))
             {
-                return 1;
+                item.IsEnabled = false;
+                item.IsChecked = false;
+                item.ToolTip = DisplayPreferences.DescribeWhyNotRememberable(this._process);
+                ToolTipService.SetShowOnDisabled(item, true);
+
+                return item;
             }
 
-            string key = DisplayPreferences.GetKey(this._process);
+            item.ToolTip = "Applies to every launch of \"" + this._process.ProcessName
+                           + "\" and survives a restart of ProcessAffinity.";
 
-            if (key == null)
+            item.Click += handler;
+
+            return item;
+        }
+
+        /// <summary>
+        /// Nombre d'entrées affichées que la portée exécutable emporterait.
+        /// </summary>
+        private int CountEntriesSharingExecutable()
+        {
+            Func<Process[]> source = SelectionSource;
+            string key = DisplayPreferences.GetExecutableKey(this._process);
+
+            if (source == null || key == null)
             {
                 return 1;
             }
@@ -1191,7 +1218,8 @@ namespace ProcessAffinityUI
 
             foreach (Process entry in source())
             {
-                if (string.Equals(DisplayPreferences.GetKey(entry), key, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(DisplayPreferences.GetExecutableKey(entry), key,
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     count++;
                 }
@@ -1219,7 +1247,60 @@ namespace ProcessAffinityUI
                 root.Items.Add(item);
             }
 
+            root.Items.Add(new Separator());
+
+            root.Items.Add(CreateRememberItem(
+                DisplayPreferences.GetScaleForExecutable(this._process) > 1,
+                RememberScaleMenuItemClick,
+                "size"));
+
             return root;
+        }
+
+        private void RememberPinMenuItemClick(object sender, RoutedEventArgs e)
+        {
+            MenuItem item = sender as MenuItem;
+
+            if (item == null)
+            {
+                return;
+            }
+
+            string error;
+
+            if (!DisplayPreferences.TrySetPinnedForExecutable(this._process, item.IsChecked, out error))
+            {
+                ReportSaveFailure(error);
+            }
+        }
+
+        private void RememberScaleMenuItemClick(object sender, RoutedEventArgs e)
+        {
+            MenuItem item = sender as MenuItem;
+
+            if (item == null)
+            {
+                return;
+            }
+
+            // On retient la taille courante de la tuile, celle que l'utilisateur
+            // vient de régler. Décocher oublie le réglage du programme et rend
+            // la tuile à sa taille d'instance.
+            int scale = item.IsChecked ? DisplayPreferences.GetScale(this._process) : 1;
+
+            string error;
+
+            if (!DisplayPreferences.TrySetScaleForExecutable(this._process, scale, out error))
+            {
+                ReportSaveFailure(error);
+            }
+        }
+
+        private static void ReportSaveFailure(string error)
+        {
+            MessageBox.Show(
+                "The change was applied, but could not be saved for next time.\r\n\r\n" + error,
+                ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
         private static string DescribeScale(int scale)
@@ -1241,14 +1322,9 @@ namespace ProcessAffinityUI
                 return;
             }
 
-            string error;
-
-            if (!DisplayPreferences.TrySetScale(this._process, (int)item.Tag, out error))
-            {
-                MessageBox.Show(
-                    "The tile size was applied, but could not be saved for next time.\r\n\r\n" + error,
-                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
+            // Cette instance seulement, et rien n'est écrit : c'est « Remember »
+            // qui fait durer.
+            DisplayPreferences.SetScaleForInstance(this._process, (int)item.Tag);
         }
 
         /// <summary>
@@ -1501,8 +1577,8 @@ namespace ProcessAffinityUI
                             break;
                     }
                     break;
-                case "Kill":
-                    KillProcess();
+                case KillHeader:
+                    KillProcesses(targets);
                     break;
                 case SaveConfigurationHeader:
                     SaveConfiguration(targets);
@@ -1521,18 +1597,23 @@ namespace ProcessAffinityUI
         /// </summary>
         private void TogglePin()
         {
-            string error;
+            bool pinned = DisplayPreferences.IsPinned(this._process);
 
-            bool saved = DisplayPreferences.IsPinned(this._process)
-                ? DisplayPreferences.TryUnpin(this._process, out error)
-                : DisplayPreferences.TryPin(this._process, out error);
-
-            if (!saved)
+            // Désépingler une tuile que le programme épingle de façon
+            // persistante ne peut pas se faire par le seul réglage d'instance :
+            // il faut aussi oublier le réglage du programme, sans quoi la tuile
+            // remonterait aussitôt et le geste n'aurait aucun effet visible.
+            if (pinned && DisplayPreferences.IsPinnedForExecutable(this._process))
             {
-                MessageBox.Show(
-                    "The change was applied, but could not be saved for next time.\r\n\r\n" + error,
-                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                string error;
+
+                if (!DisplayPreferences.TrySetPinnedForExecutable(this._process, false, out error))
+                {
+                    ReportSaveFailure(error);
+                }
             }
+
+            DisplayPreferences.SetPinnedForInstance(this._process, !pinned);
         }
 
         /// <summary>
@@ -1609,62 +1690,191 @@ namespace ProcessAffinityUI
         /// service — dont la terminaison emporte le processus hôte, et donc tous
         /// les services qu'il héberge.
         /// </summary>
-        private void KillProcess()
+        /// <summary>
+        /// Termine les cibles de l'action — la sélection si elle n'est pas vide,
+        /// sinon la seule tuile visée.
+        ///
+        /// « Kill » n'agissait que sur la tuile cliquée : la portée était
+        /// calculée comme pour les autres commandes, puis ignorée. Trois tuiles
+        /// cochées n'en terminaient qu'une, et rien ne le disait — c'est le plus
+        /// trompeur des défauts possibles sur cette commande.
+        /// </summary>
+        private void KillProcesses(List<Process> targets)
         {
-            if (this._process.IsCriticalSystemProcess)
+            // Refus avant toute confirmation : on ne demande pas à l'utilisateur
+            // de valider une cascade dont une partie sera refusée de toute façon.
+            List<string> criticalNames = targets
+                .Where(process => process.IsCriticalSystemProcess)
+                .Select(process => process.ProcessName)
+                .ToList();
+
+            List<Process> killable = targets
+                .Where(process => !process.IsCriticalSystemProcess)
+                .ToList();
+
+            if (criticalNames.Count > 0 && killable.Count == 0)
             {
                 MessageBox.Show(
-                    "\"" + this._process.ProcessName + "\" is a critical system process.\r\n\r\n" +
-                    "Terminating it would crash Windows. This action is not allowed.",
+                    DescribeCriticalRefusal(criticalNames),
                     ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
 
                 return;
             }
 
-            if (this._process.IsService)
+            if (!ConfirmKill(killable, criticalNames))
             {
-                string hostName = string.IsNullOrEmpty(this._process.HostProcessName)
+                return;
+            }
+
+            TerminateProcesses(killable, criticalNames);
+        }
+
+        /// <summary>
+        /// Termine les cibles retenues et rend compte. Séparée de la
+        /// confirmation : celle-ci est modale, et cette partie-ci doit pouvoir
+        /// être vérifiée.
+        /// </summary>
+        private static void TerminateProcesses(List<Process> killable, List<string> criticalNames)
+        {
+            List<string> notSent = new List<string>();
+            List<string> failed = new List<string>();
+            int killedCount = 0;
+
+            foreach (Process process in killable)
+            {
+                uint? returnCode = process.Kill();
+
+                if (returnCode == null)
+                {
+                    notSent.Add(process.ProcessName);
+                    continue;
+                }
+
+                if (returnCode.Value != 0)
+                {
+                    failed.Add(process.ProcessName + " (" + DescribeTerminateReturnCode(returnCode.Value) + ")");
+                    continue;
+                }
+
+                killedCount++;
+            }
+
+            ReportKill(killedCount, killable.Count + criticalNames.Count, criticalNames, notSent, failed);
+        }
+
+        private static string DescribeCriticalRefusal(List<string> names)
+        {
+            if (names.Count == 1)
+            {
+                return "\"" + names[0] + "\" is a critical system process.\r\n\r\n"
+                       + "Terminating it would crash Windows. This action is not allowed.";
+            }
+
+            return names.Count + " of the selected entries are critical system processes:\r\n\r\n"
+                   + string.Join(", ", names)
+                   + "\r\n\r\nTerminating them would crash Windows. This action is not allowed.";
+        }
+
+        /// <summary>
+        /// Confirmation. Une entrée de service emporte son hôte et tous les
+        /// services qu'il héberge : cela se dit avant, et nommément.
+        /// </summary>
+        private bool ConfirmKill(List<Process> killable, List<string> criticalNames)
+        {
+            StringBuilder builder = new StringBuilder();
+
+            if (killable.Count == 1)
+            {
+                builder.Append("Terminate \"").Append(killable[0].ProcessName).Append("\"?");
+            }
+            else
+            {
+                builder.Append("Terminate ").Append(killable.Count).Append(" processes?\r\n\r\n")
+                       .Append(string.Join(", ", killable.Take(15).Select(process => process.ProcessName)));
+
+                if (killable.Count > 15)
+                {
+                    builder.Append(", and ").Append(killable.Count - 15).Append(" more");
+                }
+            }
+
+            foreach (Process process in killable.Where(entry => entry.IsService))
+            {
+                string hostName = string.IsNullOrEmpty(process.HostProcessName)
                     ? "its host process"
-                    : "\"" + this._process.HostProcessName + "\"";
+                    : "\"" + process.HostProcessName + "\"";
 
-                string message = "\"" + this._process.ProcessName + "\" is a service.\r\n\r\n" +
-                    "Terminating it kills " + hostName + " (PID " + this._process.ProcessID + ")";
+                builder.Append("\r\n\r\n\"").Append(process.ProcessName).Append("\" is a service. ")
+                       .Append("Terminating it kills ").Append(hostName)
+                       .Append(" (PID ").Append(process.ProcessID).Append(")");
 
-                IList<string> sharedServiceNames = this._process.SharedServiceNames;
+                IList<string> sharedServiceNames = process.SharedServiceNames;
 
                 if (sharedServiceNames != null && sharedServiceNames.Count > 1)
                 {
-                    message = message + ", and with it the " + sharedServiceNames.Count +
-                        " services it hosts:\r\n" + string.Join(", ", sharedServiceNames);
+                    builder.Append(", and with it the ").Append(sharedServiceNames.Count)
+                           .Append(" services it hosts:\r\n").Append(string.Join(", ", sharedServiceNames));
                 }
 
-                message = message + ".\r\n\r\nContinue?";
-
-                if (MessageBox.Show(message, ApplicationName, MessageBoxButton.YesNo, MessageBoxImage.Warning)
-                    != MessageBoxResult.Yes)
-                {
-                    return;
-                }
+                builder.Append('.');
             }
 
-            uint? returnCode = this._process.Kill();
-
-            if (returnCode == null)
+            if (criticalNames.Count > 0)
             {
-                MessageBox.Show(
-                    "The termination request could not be sent to \"" + this._process.ProcessName + "\".",
-                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                builder.Append("\r\n\r\n").Append(criticalNames.Count)
+                       .Append(criticalNames.Count == 1 ? " entry is a critical" : " entries are critical")
+                       .Append(" system process and will be left alone: ")
+                       .Append(string.Join(", ", criticalNames)).Append('.');
+            }
 
+            return MessageBox.Show(builder.ToString(), ApplicationName,
+                       MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+        }
+
+        /// <summary>
+        /// Rapport final. Silencieux quand tout a abouti, comme les autres
+        /// applications partielles : la disparition des tuiles le dit déjà.
+        /// </summary>
+        private static void ReportKill(
+            int killedCount, int totalCount, List<string> criticalNames,
+            List<string> notSent, List<string> failed)
+        {
+            if (criticalNames.Count == 0 && notSent.Count == 0 && failed.Count == 0)
+            {
                 return;
             }
 
-            if (returnCode.Value != 0)
+            StringBuilder builder = new StringBuilder();
+
+            builder.Append("Terminated ").Append(killedCount).Append(" of ").Append(totalCount)
+                   .Append(totalCount == 1 ? " entry." : " entries.").Append("\r\n");
+
+            AppendKillSection(builder, criticalNames, "Refused — critical system process");
+            AppendKillSection(builder, notSent, "The request could not be sent");
+            AppendKillSection(builder, failed, "Windows refused the termination");
+
+            MessageBox.Show(builder.ToString(), ApplicationName,
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private static void AppendKillSection(StringBuilder builder, List<string> names, string title)
+        {
+            if (names.Count == 0)
             {
-                MessageBox.Show(
-                    "\"" + this._process.ProcessName + "\" could not be terminated.\r\n\r\n" +
-                    DescribeTerminateReturnCode(returnCode.Value),
-                    ApplicationName, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
+
+            const int maximumListed = 15;
+
+            builder.Append("\r\n").Append(title).Append(" (").Append(names.Count).Append("):\r\n")
+                   .Append(string.Join(", ", names.Take(maximumListed)));
+
+            if (names.Count > maximumListed)
+            {
+                builder.Append(", and ").Append(names.Count - maximumListed).Append(" more");
+            }
+
+            builder.Append("\r\n");
         }
 
         /// <summary>

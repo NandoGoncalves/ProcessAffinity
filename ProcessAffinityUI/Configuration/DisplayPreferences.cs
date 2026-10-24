@@ -10,57 +10,80 @@ namespace ProcessAffinityUI.Configuration
     /// Ce que l'utilisateur a décidé de l'affichage d'une entrée : son épinglage
     /// en tête, et le facteur d'agrandissement de sa tuile.
     ///
-    /// Dans <c>settings.json</c> et non dans le fichier de règles. Y loger ces
-    /// deux réglages ferait monter la version du format des règles pour un
-    /// motif purement cosmétique, et déclencherait le refus en bloc décrit au
-    /// CLAUDE.md dès qu'on reviendrait à un binaire antérieur — perdre ses
-    /// règles parce qu'on a agrandi une tuile serait absurde.
+    /// ## Deux portées, et pourquoi
     ///
-    /// ## L'identité d'une entrée
+    /// Le lot 5d identifiait une entrée par son nom, ce qui envoyait les vingt
+    /// tuiles de msedge.exe en tête dès qu'on en épinglait une, et les
+    /// agrandissait toutes ensemble. Les deux usages sont désormais séparés :
     ///
-    /// Trois candidats, et un seul tient :
+    /// **La portée d'instance** est ce que donne un geste direct sur une tuile.
+    /// Elle ne vaut que pour cette instance et disparaît avec elle : rien n'est
+    /// écrit sur le disque. Son identité est le couple PID et date de création,
+    /// celui qui sert déjà à distinguer un PID réutilisé de son prédécesseur.
     ///
-    /// Le **PID** identifie exactement la bonne tuile et survit à toutes les
-    /// reconstructions du panneau, puisque le processus, lui, continue de
-    /// tourner. Mais il est réattribué : relu au démarrage suivant, il
-    /// désignerait un processus sans rapport. Un épinglage persistant ne peut
-    /// pas en dépendre.
+    /// **La portée exécutable** est ce qu'on demande explicitement à retenir.
+    /// Elle vaut pour toutes les occurrences du programme et survit aux
+    /// redémarrages, dans <c>settings.json</c>. Son identité est le chemin de
+    /// l'exécutable — la même que celle des règles, ce qui est cohérent : une
+    /// configuration enregistrée s'applique à tout lancement de ce binaire.
     ///
-    /// Le **chemin de l'exécutable** est ce qu'utilisent les règles, et il
-    /// survit à tout. Mais il n'est pas lisible : mesuré sur cette machine en
-    /// session non élevée, **169 processus sur 274 — 62 % — n'exposent pas leur
-    /// chemin**, le descripteur de sécurité du processus l'interdisant. Un
-    /// épinglage par chemin serait indisponible sur la majorité des tuiles, et
-    /// il le serait précisément sur les tuiles système, celles qu'on surveille.
+    /// Un service n'a pas de chemin utile mais un nom court exact : c'est lui
+    /// qui sert de clé persistante, et il ne désigne qu'une entrée.
     ///
-    /// Reste le **nom**, qui est lisible sur toutes les entrées :
+    /// ## Ce que coûte le chemin
     ///
-    /// - pour un service, c'est son nom court, et il est **exact** — 147 noms
-    ///   distincts pour 147 services, vérifié ;
-    /// - pour un processus, c'est le nom de l'exécutable, qui désigne donc
-    ///   **toutes les instances du même programme**. Mesuré : msedge.exe en
-    ///   compte vingt sur cette machine, et svchost.exe quatre-vingt-quatorze.
-    ///   Le chemin n'en identifiait que huit, les autres n'exposant pas le
-    ///   leur — le nom ne crée donc pas ce regroupement, il le rend visible.
+    /// Mesuré en session non élevée : **169 processus sur 274 n'exposent pas
+    /// leur chemin**. La portée exécutable leur est donc indisponible, comme
+    /// l'est déjà l'enregistrement d'une configuration. L'entrée de menu est
+    /// alors grisée, avec la raison. La portée d'instance, elle, reste
+    /// disponible sur toutes les tuiles — c'est ce qui rend la séparation
+    /// praticable.
     ///
-    /// Cette portée est assumée plutôt que subie : c'est déjà celle des règles,
-    /// que la documentation énonce — « a rule applies to every launch of the
-    /// same executable » —, et l'entrée de menu annonce le nombre de tuiles
-    /// concernées avant qu'on clique.
+    /// Les clés nommées qu'écrivait le lot 5d ne sont plus reconnues : elles
+    /// sont ignorées en silence, et les épinglages qu'elles portaient
+    /// disparaissent. C'est précisément ce qu'on corrige.
     /// </summary>
     public static class DisplayPreferences
     {
         private const string ServicePrefix = "service:";
-        private const string ProcessPrefix = "process:";
+        private const string PathPrefix = "path:";
 
         /// <summary>
         /// Agrandissement maximal. Au-delà, une tuile couvre tant de surface
-        /// qu'elle chasse tout le reste de l'écran : à 3× elle occupe déjà neuf
-        /// fois les pixels d'une tuile normale.
+        /// qu'elle chasse tout le reste : à 3× elle occupe déjà neuf fois les
+        /// pixels d'une tuile normale.
         /// </summary>
         public const int MaximumScale = 3;
 
         private static readonly object SyncRoot = new object();
+
+        /// <summary>
+        /// Réglages d'instance, en mémoire seulement. Ils meurent avec
+        /// l'application, et chaque entrée meurt avec son processus — un
+        /// nettoyage passe sur la liste vivante à chaque relevé.
+        /// </summary>
+        private static readonly List<InstanceSetting> InstanceSettings = new List<InstanceSetting>();
+
+        private sealed class InstanceSetting
+        {
+            public int ProcessID { get; set; }
+
+            /// <summary>Zéro quand le relevé n'a pas encore eu lieu.</summary>
+            public long CreateTime { get; set; }
+
+            public bool IsService { get; set; }
+
+            /// <summary>Nom du service, pour distinguer deux entrées d'un même PID.</summary>
+            public string ServiceName { get; set; }
+
+            public bool Pinned { get; set; }
+
+            public int PinOrder { get; set; }
+
+            public int Scale { get; set; }
+        }
+
+        private static int _nextPinOrder;
 
         /// <summary>
         /// Levé après tout changement. La fenêtre principale s'en sert pour
@@ -68,33 +91,218 @@ namespace ProcessAffinityUI.Configuration
         /// </summary>
         public static event Action Changed;
 
-        public static string GetKey(Process process)
+        // ------------------------------------------------------ identités
+
+        /// <summary>
+        /// Clé persistante, ou null quand l'entrée n'en a pas — un processus
+        /// dont le chemin n'est pas lisible.
+        /// </summary>
+        public static string GetExecutableKey(Process process)
         {
-            if (process == null || string.IsNullOrEmpty(process.ProcessName))
+            if (process == null)
             {
                 return null;
             }
 
-            return (process.IsService ? ServicePrefix : ProcessPrefix) + process.ProcessName;
+            if (process.IsService)
+            {
+                return string.IsNullOrEmpty(process.ProcessName)
+                    ? null
+                    : ServicePrefix + process.ProcessName;
+            }
+
+            return string.IsNullOrEmpty(process.ExecutablePath)
+                ? null
+                : PathPrefix + process.ExecutablePath;
+        }
+
+        /// <summary>
+        /// Vrai quand l'entrée peut porter un réglage persistant. Faux pour un
+        /// processus dont le chemin est illisible.
+        /// </summary>
+        public static bool CanRemember(Process process)
+        {
+            return GetExecutableKey(process) != null;
+        }
+
+        /// <summary>
+        /// Raison du refus, pour l'info-bulle de l'entrée grisée.
+        /// </summary>
+        public static string DescribeWhyNotRememberable(Process process)
+        {
+            return "The path of this executable cannot be read without elevation, "
+                   + "so there is nothing to key a saved setting on. "
+                   + "The setting still applies to this instance.";
+        }
+
+        /// <summary>
+        /// Retrouve le réglage d'instance d'une entrée.
+        ///
+        /// La date de création vaut zéro pendant la seconde qui suit
+        /// l'apparition d'une entrée, avant le premier relevé. On accepte alors
+        /// le rapprochement sur le seul PID, d'un côté comme de l'autre : deux
+        /// PID identiques ne peuvent pas coexister, et dès que la date est
+        /// connue des deux côtés, elle doit concorder.
+        /// </summary>
+        private static InstanceSetting FindInstance(Process process, bool create)
+        {
+            if (process == null)
+            {
+                return null;
+            }
+
+            foreach (InstanceSetting setting in InstanceSettings)
+            {
+                if (setting.ProcessID != process.ProcessID
+                    || setting.IsService != process.IsService)
+                {
+                    continue;
+                }
+
+                if (process.IsService
+                    && !string.Equals(setting.ServiceName, process.ProcessName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (setting.CreateTime != 0 && process.CreateTime != 0
+                    && setting.CreateTime != process.CreateTime)
+                {
+                    // PID réutilisé : le réglage appartenait au précédent.
+                    continue;
+                }
+
+                // La date devient connue : on la fixe, et la comparaison
+                // suivante sera exacte.
+                if (setting.CreateTime == 0)
+                {
+                    setting.CreateTime = process.CreateTime;
+                }
+
+                return setting;
+            }
+
+            if (!create)
+            {
+                return null;
+            }
+
+            InstanceSetting added = new InstanceSetting
+            {
+                ProcessID = process.ProcessID,
+                CreateTime = process.CreateTime,
+                IsService = process.IsService,
+                ServiceName = process.IsService ? process.ProcessName : null,
+                Scale = 1,
+            };
+
+            InstanceSettings.Add(added);
+
+            return added;
+        }
+
+        /// <summary>
+        /// Oublie les réglages d'instance dont le processus a disparu. Appelé
+        /// depuis le relevé : sans cela, un réglage posé sur une instance morte
+        /// se transmettrait à un PID réutilisé qui aurait la même date nulle.
+        /// </summary>
+        public static void ForgetDeadInstances(IEnumerable<Process> living)
+        {
+            if (living == null)
+            {
+                return;
+            }
+
+            HashSet<string> alive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (Process process in living)
+            {
+                if (process == null)
+                {
+                    continue;
+                }
+
+                alive.Add(process.ProcessID + "|" + process.CreateTime + "|"
+                          + (process.IsService ? process.ProcessName : string.Empty));
+            }
+
+            bool removed = false;
+
+            lock (SyncRoot)
+            {
+                for (int i = InstanceSettings.Count - 1; i >= 0; i--)
+                {
+                    InstanceSetting setting = InstanceSettings[i];
+
+                    string key = setting.ProcessID + "|" + setting.CreateTime + "|"
+                                 + (setting.IsService ? setting.ServiceName : string.Empty);
+
+                    if (alive.Contains(key))
+                    {
+                        continue;
+                    }
+
+                    // Une entrée dont la date n'est pas encore connue ne doit pas
+                    // être jetée au premier relevé venu.
+                    if (setting.CreateTime == 0)
+                    {
+                        continue;
+                    }
+
+                    InstanceSettings.RemoveAt(i);
+                    removed = true;
+                }
+            }
+
+            if (removed)
+            {
+                Raise();
+            }
         }
 
         // ------------------------------------------------------------ épinglage
 
         /// <summary>
-        /// Clés épinglées, dans l'ordre où elles l'ont été. C'est bien une
-        /// liste ordonnée et non un ensemble : la demande est que les tuiles
-        /// épinglées se suivent dans cet ordre.
+        /// Rang d'épinglage, ou -1. Le réglage d'instance prime sur celui de
+        /// l'exécutable : un geste direct sur une tuile l'emporte sur ce qui a
+        /// été retenu pour le programme.
         /// </summary>
-        public static IReadOnlyList<string> PinnedKeys
+        public static int GetPinIndex(Process process)
         {
-            get
+            if (process == null)
             {
-                lock (SyncRoot)
-                {
-                    List<string> stored = SettingsStore.Current.PinnedEntries;
+                return -1;
+            }
 
-                    return stored == null ? new List<string>() : new List<string>(stored);
+            lock (SyncRoot)
+            {
+                InstanceSetting instance = FindInstance(process, false);
+
+                if (instance != null && instance.Pinned)
+                {
+                    return instance.PinOrder;
                 }
+
+                string key = GetExecutableKey(process);
+
+                if (key == null)
+                {
+                    return -1;
+                }
+
+                List<string> stored = SettingsStore.Current.PinnedEntries;
+
+                if (stored == null)
+                {
+                    return -1;
+                }
+
+                int index = stored.FindIndex(entry => string.Equals(entry, key, StringComparison.OrdinalIgnoreCase));
+
+                // Les rangs persistants viennent après les rangs d'instance :
+                // ce qu'on vient d'épingler à la main passe devant ce qui l'est
+                // depuis toujours.
+                return index < 0 ? -1 : index;
             }
         }
 
@@ -103,47 +311,67 @@ namespace ProcessAffinityUI.Configuration
             return GetPinIndex(process) >= 0;
         }
 
-        /// <summary>
-        /// Rang d'épinglage, ou -1. C'est la clé de tri du panneau : les rangs
-        /// d'abord, dans l'ordre, puis tout le reste.
-        /// </summary>
-        public static int GetPinIndex(Process process)
+        /// <summary>Vrai quand l'épinglage vient d'un réglage d'instance.</summary>
+        public static bool IsPinnedForInstance(Process process)
         {
-            string key = GetKey(process);
+            lock (SyncRoot)
+            {
+                InstanceSetting instance = FindInstance(process, false);
+
+                return instance != null && instance.Pinned;
+            }
+        }
+
+        public static bool IsPinnedForExecutable(Process process)
+        {
+            string key = GetExecutableKey(process);
 
             if (key == null)
             {
-                return -1;
+                return false;
             }
 
             lock (SyncRoot)
             {
                 List<string> stored = SettingsStore.Current.PinnedEntries;
 
-                if (stored == null)
-                {
-                    return -1;
-                }
-
-                return stored.FindIndex(entry => string.Equals(entry, key, StringComparison.OrdinalIgnoreCase));
+                return stored != null
+                       && stored.Any(entry => string.Equals(entry, key, StringComparison.OrdinalIgnoreCase));
             }
         }
 
-        public static bool TryPin(Process process, out string error)
+        /// <summary>Épingle ou désépingle cette instance seulement.</summary>
+        public static void SetPinnedForInstance(Process process, bool pinned)
         {
-            return TrySetPinned(process, true, out error);
+            lock (SyncRoot)
+            {
+                InstanceSetting instance = FindInstance(process, pinned);
+
+                if (instance == null)
+                {
+                    return;
+                }
+
+                instance.Pinned = pinned;
+
+                if (pinned)
+                {
+                    instance.PinOrder = _nextPinOrder++;
+                }
+            }
+
+            Raise();
         }
 
-        public static bool TryUnpin(Process process, out string error)
-        {
-            return TrySetPinned(process, false, out error);
-        }
-
-        private static bool TrySetPinned(Process process, bool pinned, out string error)
+        /// <summary>
+        /// Retient l'épinglage pour toutes les occurrences de l'exécutable, ou
+        /// l'oublie.
+        /// </summary>
+        public static bool TrySetPinnedForExecutable(Process process, bool pinned, out string error)
         {
             error = null;
 
-            string key = GetKey(process);
+            string key = GetExecutableKey(process);
 
             if (key == null)
             {
@@ -158,8 +386,6 @@ namespace ProcessAffinityUI.Configuration
 
                 if (pinned)
                 {
-                    // Déjà épinglée : on ne la remet pas en queue d'ordre, son
-                    // rang lui appartient.
                     if (index >= 0)
                     {
                         return true;
@@ -190,23 +416,32 @@ namespace ProcessAffinityUI.Configuration
         // --------------------------------------------------------- agrandissement
 
         /// <summary>
-        /// Facteur d'agrandissement, toujours entre 1 et
-        /// <see cref="MaximumScale"/>. Une valeur aberrante venue d'un fichier
-        /// édité à la main est ramenée dans les bornes plutôt que refusée : une
-        /// préférence d'affichage ne doit pas empêcher l'application de
-        /// démarrer.
+        /// Facteur d'agrandissement effectif, toujours entre 1 et
+        /// <see cref="MaximumScale"/>. Le réglage d'instance prime.
         /// </summary>
         public static int GetScale(Process process)
         {
-            string key = GetKey(process);
-
-            if (key == null)
+            if (process == null)
             {
                 return 1;
             }
 
             lock (SyncRoot)
             {
+                InstanceSetting instance = FindInstance(process, false);
+
+                if (instance != null && instance.Scale > 1)
+                {
+                    return Clamp(instance.Scale);
+                }
+
+                string key = GetExecutableKey(process);
+
+                if (key == null)
+                {
+                    return 1;
+                }
+
                 Dictionary<string, int> stored = SettingsStore.Current.TileScales;
 
                 int scale;
@@ -220,11 +455,65 @@ namespace ProcessAffinityUI.Configuration
             }
         }
 
-        public static bool TrySetScale(Process process, int scale, out string error)
+        public static int GetScaleForInstance(Process process)
+        {
+            lock (SyncRoot)
+            {
+                InstanceSetting instance = FindInstance(process, false);
+
+                return instance == null ? 1 : Clamp(instance.Scale);
+            }
+        }
+
+        public static int GetScaleForExecutable(Process process)
+        {
+            string key = GetExecutableKey(process);
+
+            if (key == null)
+            {
+                return 1;
+            }
+
+            lock (SyncRoot)
+            {
+                Dictionary<string, int> stored = SettingsStore.Current.TileScales;
+
+                int scale;
+
+                return stored != null && stored.TryGetValue(key, out scale) ? Clamp(scale) : 1;
+            }
+        }
+
+        /// <summary>Agrandit cette instance seulement.</summary>
+        public static void SetScaleForInstance(Process process, int scale)
+        {
+            scale = Clamp(scale);
+
+            lock (SyncRoot)
+            {
+                InstanceSetting instance = FindInstance(process, scale > 1);
+
+                if (instance == null)
+                {
+                    return;
+                }
+
+                instance.Scale = scale;
+            }
+
+            Raise();
+        }
+
+        /// <summary>
+        /// Retient l'agrandissement pour toutes les occurrences de
+        /// l'exécutable. Une échelle de 1 ne laisse aucune trace : le fichier
+        /// ne porte que ce qui s'écarte de l'ordinaire.
+        /// </summary>
+        public static bool TrySetScaleForExecutable(Process process, int scale, out string error)
         {
             error = null;
 
-            string key = GetKey(process);
+            string key = GetExecutableKey(process);
 
             if (key == null)
             {
@@ -238,8 +527,6 @@ namespace ProcessAffinityUI.Configuration
                 Dictionary<string, int> stored = SettingsStore.Current.TileScales
                                                  ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-                // Une tuile à l'échelle normale ne laisse aucune trace : le
-                // fichier ne porte que ce qui s'écarte de l'ordinaire.
                 if (scale <= 1)
                 {
                     if (!stored.Remove(key))
@@ -280,13 +567,15 @@ namespace ProcessAffinityUI.Configuration
         }
 
         /// <summary>
-        /// Remet tout à plat. Utile depuis les vérifications, et comme sortie
-        /// de secours si l'affichage devient ingérable.
+        /// Remet tout à plat, instances comprises. Sortie de secours si
+        /// l'affichage devient ingérable.
         /// </summary>
         public static bool TryResetAll(out string error)
         {
             lock (SyncRoot)
             {
+                InstanceSettings.Clear();
+
                 SettingsStore.Current.PinnedEntries = null;
                 SettingsStore.Current.TileScales = null;
             }
@@ -298,9 +587,35 @@ namespace ProcessAffinityUI.Configuration
             return written;
         }
 
+        /// <summary>
+        /// Clés persistantes épinglées, dans l'ordre où elles l'ont été. Les
+        /// réglages d'instance n'y figurent pas : ils ne sont pas persistants.
+        /// </summary>
+        public static IReadOnlyList<string> PinnedKeys
+        {
+            get
+            {
+                lock (SyncRoot)
+                {
+                    List<string> stored = SettingsStore.Current.PinnedEntries;
+
+                    return stored == null ? new List<string>() : new List<string>(stored);
+                }
+            }
+        }
+
         public static int PinnedCount
         {
-            get { return PinnedKeys.Count; }
+            get
+            {
+                lock (SyncRoot)
+                {
+                    List<string> stored = SettingsStore.Current.PinnedEntries;
+
+                    return (stored == null ? 0 : stored.Count)
+                           + InstanceSettings.Count(setting => setting.Pinned);
+                }
+            }
         }
 
         public static int ScaledCount
@@ -311,7 +626,8 @@ namespace ProcessAffinityUI.Configuration
                 {
                     Dictionary<string, int> stored = SettingsStore.Current.TileScales;
 
-                    return stored == null ? 0 : stored.Count;
+                    return (stored == null ? 0 : stored.Count)
+                           + InstanceSettings.Count(setting => setting.Scale > 1);
                 }
             }
         }
