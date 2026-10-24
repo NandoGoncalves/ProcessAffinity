@@ -44,7 +44,12 @@
     <Grid Name="TileRoot">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="27" />
+            <!-- Le bandeau gagne une ligne par cran d'agrandissement : le nom
+                 garde sa taille, mais une tuile triple lui offre trois lignes.
+                 La hauteur est posée par le code, qui la retire d'autant à la
+                 zone des courbes pour que la tuile occupe toujours n cellules
+                 sur n. -->
+            <RowDefinition x:Name="BandRow" Height="27" />
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0" Name="CurvesHost" Width="102" Height="56">
@@ -126,7 +131,16 @@
              la largeur disponible, et un Label centré le couperait des deux côtés.
              L'ellipse conserve le début, qui identifie l'entrée ; l'infobulle donne
              le libellé complet. -->
-        <TextBlock Grid.Row="1" Text="0000" Height="22" Name="ProcessIDlabel" VerticalAlignment="Top" HorizontalAlignment="Stretch" TextAlignment="Center" TextTrimming="CharacterEllipsis" Padding="0,7,0,0" FontSize="10" FontWeight="SemiBold" Opacity="1" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" />
+        <!-- TextWrapping et LineHeight explicites : le nombre de lignes doit se
+             calculer, pas s'observer. La hauteur de ligne fixée à 13 px rend la
+             hauteur du bandeau exactement prévisible, et c'est elle que le code
+             retranche à la zone des courbes.
+
+             TextTrimming reste : il s'applique à la dernière ligne, pour les
+             libellés qui débordent même de trois lignes. La largeur, elle, est
+             posée par le code et jamais déduite du texte — c'est ce qui avait
+             élargi les tuiles aux noms longs. -->
+        <TextBlock Grid.Row="1" Text="0000" Name="ProcessIDlabel" VerticalAlignment="Top" HorizontalAlignment="Stretch" TextAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" LineHeight="13" LineStackingStrategy="BlockLineHeight" Padding="0,7,0,0" FontSize="10" FontWeight="SemiBold" Opacity="1" MouseRightButtonDown="ProcessIDlabel_MouseRightButtonDown" />
 
     </Grid>
 
