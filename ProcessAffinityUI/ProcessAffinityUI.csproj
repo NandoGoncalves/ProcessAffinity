@@ -15,8 +15,8 @@
     <Product>ProcessAffinityUI</Product>
     <Copyright>Copyright ©  2013</Copyright>
     <Version>2.11.0</Version>
-    <AssemblyVersion>2.15.4.0</AssemblyVersion>
-    <FileVersion>2.15.4.0</FileVersion>
+    <AssemblyVersion>2.15.8.0</AssemblyVersion>
+    <FileVersion>2.15.8.0</FileVersion>
     <ComVisible>false</ComVisible>
 
     <!-- WFO1000 : nouvel analyseur WPF .NET 9 sur la sérialisation XAML des propriétés d'un Component.
